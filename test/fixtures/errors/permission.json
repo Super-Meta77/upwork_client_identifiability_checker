@@ -1,0 +1,10 @@
+{
+  "data": { "jobAuthDetails": null },
+  "errors": [
+    {
+      "message": "Requested oAuth2 client does not have permission to see field 'jobAuthDetails'",
+      "path": ["jobAuthDetails"],
+      "extensions": { "code": "FORBIDDEN" }
+    }
+  ]
+}

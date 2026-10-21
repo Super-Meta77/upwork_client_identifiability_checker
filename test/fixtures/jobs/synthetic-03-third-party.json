@@ -1,0 +1,24 @@
+{
+  "data": {
+    "jobAuthDetails": {
+      "opening": {
+        "job": {
+          "info": { "title": "Booking site like airbnb.com" },
+          "description": "Build a booking site similar to rivalbookings.com with Stripe payments. Experience with Contoso Payments Inc. is a plus. Send questions to host.helper@gmail.com.\n\nThanks,\nMaria",
+          "attachments": []
+        },
+        "questions": [{ "question": "Have you built a marketplace before?" }, { "question": "" }]
+      },
+      "buyer": {
+        "enterprise": null,
+        "info": {
+          "company": { "name": "", "companyId": "1100000000000000003", "contractDate": null, "profile": null },
+          "location": { "city": null, "country": "Spain", "countryTimezone": null },
+          "stats": { "totalCharges": { "amount": 0 }, "totalAssignments": 0, "feedbackCount": 0 },
+          "jobs": { "postedCount": 1, "openJobs": null }
+        },
+        "workHistory": null
+      }
+    }
+  }
+}

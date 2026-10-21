@@ -1,0 +1,32 @@
+{
+  "data": {
+    "jobAuthDetails": {
+      "opening": {
+        "job": {
+          "info": { "title": "Translate a product catalogue" },
+          "description": "Catalogue and style guide attached.",
+          "attachments": [
+            { "fileName": "Tailspin_Toys_Catalogue_2026.docx", "uri": "/att/download/openings/1/attachments/aaaa/download", "length": 52113 },
+            { "fileName": "style-guide.pdf", "uri": "/att/download/openings/1/attachments/bbbb/download", "length": 120440 },
+            { "fileName": "box-photo.jpg", "uri": "/att/download/openings/1/attachments/cccc/download", "length": 80321 },
+            { "fileName": "notes.txt", "uri": "/att/download/openings/1/attachments/dddd/download", "length": 120 },
+            { "fileName": "huge-scan.pdf", "uri": "/att/download/openings/1/attachments/eeee/download", "length": 52428800 },
+            { "fileName": "extra-1.pdf", "uri": "/att/download/openings/1/attachments/ffff/download", "length": 1000 },
+            { "fileName": "extra-2.pdf", "uri": "https://files.example.net/extra-2.pdf", "length": 1000 }
+          ]
+        },
+        "questions": []
+      },
+      "buyer": {
+        "enterprise": false,
+        "info": {
+          "company": { "name": null, "companyId": "1100000000000000005", "contractDate": "2019-01-20", "profile": { "industry": "Education", "size": null } },
+          "location": { "city": "Lyon", "country": "France", "countryTimezone": null },
+          "stats": null,
+          "jobs": null
+        },
+        "workHistory": []
+      }
+    }
+  }
+}

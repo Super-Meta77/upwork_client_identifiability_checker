@@ -1,0 +1,26 @@
+{
+  "data": {
+    "jobAuthDetails": {
+      "unexpectedTopLevel": { "x": 1 },
+      "opening": {
+        "job": {
+          "info": { "title": "  Logo for a bakery  ", "extra": true },
+          "description": "My name is Dana Whitfield and I run Crumb & Co. bakery. Visit us at crumbandco.com.",
+          "attachments": [{ "fileName": "", "uri": null, "length": null }, null]
+        },
+        "questions": [null, { "question": "  Can you show bakery logos?  " }],
+        "newField": "ignored"
+      },
+      "buyer": {
+        "enterprise": false,
+        "info": {
+          "company": { "name": "Crumb & Co.", "companyId": 1100000000000000008, "contractDate": "2023-03-03", "profile": { "industry": "Food", "size": 2 } },
+          "location": { "city": "Bristol", "country": "United Kingdom", "countryTimezone": null },
+          "stats": { "totalCharges": { "amount": "n/a" }, "totalAssignments": 1, "feedbackCount": 1 },
+          "jobs": { "postedCount": 2, "openJobs": [null, { "title": "Logo for a bakery" }] }
+        },
+        "workHistory": [null]
+      }
+    }
+  }
+}

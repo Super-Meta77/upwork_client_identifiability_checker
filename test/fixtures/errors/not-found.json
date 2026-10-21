@@ -1,0 +1,4 @@
+{
+  "data": { "jobAuthDetails": null },
+  "errors": [{ "message": "Job posting not found or is private", "path": ["jobAuthDetails"], "extensions": { "code": "NOT_FOUND" } }]
+}

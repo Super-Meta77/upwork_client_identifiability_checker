@@ -1,0 +1,39 @@
+{
+  "data": {
+    "jobAuthDetails": {
+      "opening": {
+        "job": { "info": { "title": "Edit a podcast episode" }, "description": "Weekly 40-minute episode, light cleanup and music.", "attachments": [] },
+        "questions": []
+      },
+      "buyer": {
+        "enterprise": false,
+        "info": {
+          "company": { "name": "Private", "companyId": "1100000000000000006", "contractDate": "2018-06-01", "profile": { "industry": null, "size": null } },
+          "location": { "city": "Austin", "country": "United States", "countryTimezone": null },
+          "stats": { "totalCharges": { "amount": "3120.00" }, "totalAssignments": "6", "feedbackCount": "5" },
+          "jobs": { "postedCount": 9, "openJobs": [{ "title": "Edit a podcast episode" }] }
+        },
+        "workHistory": [
+          {
+            "jobInfo": { "title": "Podcast editing" },
+            "feedback": { "comment": "John P. did excellent work, will hire again." },
+            "feedbackToClient": { "comment": "Working with Sarah was a pleasure." },
+            "contractorInfo": { "contractorName": "John P." }
+          },
+          {
+            "jobInfo": { "title": "Show notes" },
+            "feedback": { "comment": "Lena was great." },
+            "feedbackToClient": { "comment": "Sarah gave clear instructions. Thanks Sarah!" },
+            "contractorInfo": { "contractorName": "Lena M." }
+          },
+          {
+            "jobInfo": { "title": "Audio cleanup" },
+            "feedback": null,
+            "feedbackToClient": { "comment": "Great client, paid on time." },
+            "contractorInfo": { "contractorName": "Kenji S." }
+          }
+        ]
+      }
+    }
+  }
+}

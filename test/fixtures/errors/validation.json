@@ -1,0 +1,8 @@
+{
+  "errors": [
+    {
+      "message": "Validation error of type FieldUndefined: Field 'contractorName' in type 'ContractorInfo' is undefined @ 'jobAuthDetails/buyer/workHistory/contractorInfo/contractorName'",
+      "extensions": { "classification": "ValidationError" }
+    }
+  ]
+}

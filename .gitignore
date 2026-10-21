@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.env.local
+
+# Phase 0 raw captures contain tokens, cookies and real client data. Never commit them.
+phase0/raw/
