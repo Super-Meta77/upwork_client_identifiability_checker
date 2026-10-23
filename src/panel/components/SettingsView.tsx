@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { S3Attribute } from '../../core/types';
 import type { Settings } from '../../store/settings';
-import { getLoginStatus } from '../../upwork';
+import { clearManualToken, getLoginStatus, isTokenShaped, setManualToken } from '../../upwork';
 import { S3_LABEL } from '../labels';
 
 interface Props {
@@ -19,6 +19,8 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
   const [endings, setEndings] = useState(settings.extraLegalEndings.join('\n'));
   const [status, setStatus] = useState<string | null>(null);
   const [loginSource, setLoginSource] = useState<string | null | undefined>(undefined);
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenStatus, setTokenStatus] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(settings);
@@ -27,11 +29,31 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
   }, [settings]);
 
   // The login source backing checks, by name only — never the token (NFR-08).
-  useEffect(() => {
+  const refreshLoginSource = () => {
     void getLoginStatus()
       .then(setLoginSource)
       .catch(() => setLoginSource(null));
-  }, []);
+  };
+  useEffect(refreshLoginSource, []);
+
+  const saveToken = async () => {
+    const value = tokenInput.trim();
+    if (!isTokenShaped(value)) {
+      setTokenStatus('That does not look like an Upwork token (it should start with "oauth2v2_" or "eyJ").');
+      return;
+    }
+    await setManualToken(value);
+    setTokenInput('');
+    setTokenStatus('Token saved for this browser session.');
+    refreshLoginSource();
+  };
+
+  const clearToken = async () => {
+    await clearManualToken();
+    setTokenInput('');
+    setTokenStatus('Token cleared.');
+    refreshLoginSource();
+  };
 
   const num = (key: 'delaySeconds' | 'retentionDays' | 'dailyLimit' | 's3Threshold') => (e: Event) =>
     setDraft((d) => ({ ...d, [key]: Number((e.currentTarget as HTMLInputElement).value) }));
@@ -53,11 +75,40 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
     >
       {loginSource !== undefined && (
         <p class={`notice${loginSource ? '' : ' error'}`} role="status">
-          {loginSource
-            ? `Upwork login detected (${loginSource}).`
-            : 'No Upwork login found. Open a job page on www.upwork.com while signed in, then reopen this panel.'}
+          {loginSource ? `Upwork login detected (${loginSource}).` : 'No Upwork token set. Paste one below.'}
         </p>
       )}
+
+      <fieldset>
+        <legend>Upwork access token</legend>
+        <p class="muted small">
+          On www.upwork.com open a job, then in DevTools → Network find the <code>jobAuthDetails</code> request and copy the value of its <code>authorization</code> header after
+          "Bearer ". Paste it here. It is kept in memory only, never saved to disk or exported, and is cleared when you close the browser.
+        </p>
+        <label for="manual-token">Bearer token</label>
+        <input
+          id="manual-token"
+          type="password"
+          autocomplete="off"
+          spellcheck={false}
+          placeholder="oauth2v2_…"
+          value={tokenInput}
+          onInput={(e) => setTokenInput(e.currentTarget.value)}
+        />
+        <div class="row">
+          <button type="button" class="primary" onClick={() => void saveToken()} disabled={!tokenInput.trim()}>
+            Save token
+          </button>
+          <button type="button" onClick={() => void clearToken()}>
+            Clear token
+          </button>
+          {tokenStatus && (
+            <span role="status" class="muted">
+              {tokenStatus}
+            </span>
+          )}
+        </div>
+      </fieldset>
 
       <label for="delay">Delay between jobs (seconds, 3 to 30)</label>
       <input id="delay" type="number" min={3} max={30} required value={draft.delaySeconds} onInput={num('delaySeconds')} />

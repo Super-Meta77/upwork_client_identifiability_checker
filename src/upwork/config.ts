@@ -6,14 +6,11 @@ export const UPWORK_ORIGIN = 'https://www.upwork.com';
 /** FR-12. The ?alias= names the operation the way Upwork's own job page does (D-29). */
 export const GRAPHQL_URL = `${UPWORK_ORIGIN}/api/graphql/v1?alias=gql-query-get-auth-job-details-v2`;
 
-/** The job-details GraphQL path, without the query string, for the page-token capture (D-30). */
-export const GRAPHQL_PATH_PREFIX = `${UPWORK_ORIGIN}/api/graphql`;
-
 /**
- * FR-08 / D-29. Cookies that may hold a token the job-details request accepts, best first.
- * The 2026-10-22 probe showed `oauth2_global_js_token` exists but lacks the scopes for buyer
- * stats, jobs and reviews, so the scoped token the job page itself uses is tried ahead of it.
- * PROVISIONAL: confirmed and reordered from the Phase 0 field-access probe.
+ * FR-08 / D-29. Cookies that may hold a token the job-details request accepts, best first, tried as
+ * a fallback after the manually entered token (D-30). The 2026-10-22 probe showed
+ * `oauth2_global_js_token` exists but lacks the scopes for buyer stats, jobs and reviews.
+ * PROVISIONAL: confirmed and reordered from the Phase 0 probe.
  */
 export const TOKEN_COOKIE_NAMES: readonly string[] = [
   'UniversalSearchNuxt_vt',

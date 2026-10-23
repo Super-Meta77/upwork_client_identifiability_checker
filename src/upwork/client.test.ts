@@ -16,7 +16,7 @@ const JOB_ID = '~01a2b3c4d5e6f7a8b9';
 
 interface SetupOpts {
   session?: string | null;
-  captured?: string | null;
+  manual?: string | null;
   cookie?: string | null;
   cookies?: TokenCandidate[];
   timeoutMs?: number;
@@ -24,14 +24,16 @@ interface SetupOpts {
 
 function setup(handler: FetchHandler, opts: SetupOpts = {}) {
   const guarded = createGuardedFetch(handler);
-  const state = { session: opts.session ?? null, requests: 0 };
+  const state = { session: opts.session ?? null, manual: opts.manual ?? null, requests: 0 };
   const cookieToken = opts.cookie === undefined ? 'cookie-token' : opts.cookie;
   const cookieList: TokenCandidate[] = opts.cookies ?? (cookieToken ? [{ token: cookieToken, source: 'cookie UniversalSearchNuxt_vt' }] : []);
   const tokens: TokenSource = {
     getSession: async () => state.session,
     setSession: async (t) => void (state.session = t),
     clearSession: async () => void (state.session = null),
-    getCaptured: async () => opts.captured ?? null,
+    getManual: async () => state.manual,
+    setManual: async (t) => void (state.manual = t),
+    clearManual: async () => void (state.manual = null),
     getCookie: async () => cookieToken,
     listCookieTokens: async () => cookieList,
   };
@@ -181,14 +183,24 @@ describe('token handling (FR-07–FR-09, FR-11)', () => {
     expect(state.session).toBe('page');
   });
 
-  it('tries the session token, then the captured page token, then cookies, in that order (D-29)', async () => {
+  it('tries the manual token, then the session token, then cookies, in that order (D-29, D-30)', async () => {
     const { client, guarded } = setup(() => jsonResponse(errorFixture('permission')), {
+      manual: 'man',
       session: 'sess',
-      captured: 'cap',
       cookies: [{ token: 'ck', source: 'cookie UniversalSearchNuxt_vt' }],
     });
     expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-SCOPE');
-    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer sess', 'Bearer cap', 'Bearer ck']);
+    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer man', 'Bearer sess', 'Bearer ck']);
+  });
+
+  it('clears a refused manual token so Settings prompts for a fresh one (D-30)', async () => {
+    const { client, guarded, state } = setup(
+      (call) => (call.headers.authorization === 'Bearer stale-manual' ? jsonResponse(errorFixture('unauthenticated')) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
+      { manual: 'stale-manual', cookie: 'cookie-token' },
+    );
+    await client.fetchJob(JOB_ID);
+    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer stale-manual', 'Bearer cookie-token']);
+    expect(state.manual).toBeNull();
   });
 
   it('tries at most MAX_TOKEN_ATTEMPTS tokens before giving up (D-29)', async () => {
@@ -243,7 +255,9 @@ describe('request volume and hosts (NFR-01, NFR-07)', () => {
       getSession: async () => 't',
       setSession: async () => {},
       clearSession: async () => {},
-      getCaptured: async () => null,
+      getManual: async () => null,
+      setManual: async () => {},
+      clearManual: async () => {},
       getCookie: async () => 't',
       listCookieTokens: async () => [{ token: 't', source: 'cookie UniversalSearchNuxt_vt' }],
     };

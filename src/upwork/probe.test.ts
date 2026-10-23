@@ -14,7 +14,9 @@ function deps(cookie: string | null, handler = () => jsonResponse(jobFixture('sy
     getSession: async () => null,
     setSession: async () => {},
     clearSession: async () => {},
-    getCaptured: async () => null,
+    getManual: async () => null,
+    setManual: async () => {},
+    clearManual: async () => {},
     getCookie: async () => cookie,
     listCookieTokens: async () => (cookie ? [{ token: cookie, source: 'cookie oauth2_global_js_token' }] : []),
   };
@@ -59,15 +61,17 @@ describe('Phase 0 probe', () => {
       getSession: async () => null,
       setSession: async () => {},
       clearSession: async () => {},
-      getCaptured: async () => 'good',
+      getManual: async () => 'good',
+      setManual: async () => {},
+      clearManual: async () => {},
       getCookie: async () => 'scoped',
       listCookieTokens: async () => [{ token: 'scoped', source: 'cookie oauth2_global_js_token' }],
     };
     const d: ProbeDeps = { fetch: guarded.fetch, tokens, gate: createGate(), pause: async (ms) => void pauses.push(ms) };
     const steps = await runProbe(['~01a'], d, () => {});
-    // tokens-found, then captured 'good' (ALLOWED); the scoped cookie is never reached.
-    expect(steps[0]?.shape).toEqual(['1. captured page request (4 chars)', '2. cookie oauth2_global_js_token (6 chars)']);
-    expect(steps[1]).toMatchObject({ label: 'token from captured page request', note: 'ALLOWED' });
+    // tokens-found, then manual 'good' (ALLOWED); the scoped cookie is never reached.
+    expect(steps[0]?.shape).toEqual(['1. manual entry (4 chars)', '2. cookie oauth2_global_js_token (6 chars)']);
+    expect(steps[1]).toMatchObject({ label: 'token from manual entry', note: 'ALLOWED' });
     expect(guarded.calls.some((c) => c.headers.authorization === 'Bearer scoped')).toBe(false);
   });
 

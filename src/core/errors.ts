@@ -6,9 +6,9 @@ export function errorMessage(code: ErrorCode, detail?: string): string {
     case 'E-LINK':
       return 'Not an Upwork job link. Paste a link that contains /jobs/ and a ~ID.';
     case 'E-AUTH':
-      return 'Log in to Upwork in this Chrome profile, then press Retry.';
+      return 'No working Upwork token. In Settings, paste the token from a logged-in job-details request, then press Retry.';
     case 'E-SCOPE':
-      return 'Upwork refused this request with the current login. Open any Upwork job page once, then press Retry.';
+      return 'Upwork refused this request: the token lacks the needed permissions. In Settings, paste the token from a logged-in job-details request, then press Retry.';
     case 'E-NOTFOUND':
       return 'Job not found, or not visible to your account.';
     case 'E-RATE':

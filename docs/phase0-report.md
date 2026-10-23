@@ -33,34 +33,33 @@ Request probe from the extension, logged in, 3 live jobs (IDs start with `~02`).
 1. **Probe field access** with one job link. This shows which field groups the cookie token may read.
 2. **HAR capture**, with sensitive data enabled in DevTools, of the job page's own GraphQL requests. This shows which token the page sends for the buyer stats and work history, and whether that token is also stored in a cookie.
 
-## Token strategy built after probe run 1 (2026-10-23, D-29 / D-30)
+## Probe run 2 — 2026-10-23 (field access)
 
-The scope refusal above is the FR-10 condition D-27 set, so FR-10 is now built, following the sibling job-watcher extension's approach but without its risks (no token on disk, no page injection, no unbounded request volume).
+Field-access probe (each buyer field group on its own). Result: **every group REFUSED (scope)**, including the job-post group (`Job.title`, `description`, attachments, questions) — not just buyer fields — classification `ExecutionAborted`, message "doesn't have enough oauth2 permissions/scopes". Two of the eight requests returned a **Cloudflare challenge** (HTTP 403, `cf-mitigated: challenge`, title "Challenge - Upwork") → E-BLOCKED, handled correctly. The unknown-job request also returned the scope refusal, so Upwork's real not-found shape is still unseen.
 
-- **A check tries an ordered list of tokens, not one cookie** (`src/upwork/token.ts`, `client.ts`): last token that worked → token captured from the page's own request → cookies `UniversalSearchNuxt_vt`, `oauth2v2_token`, `oauth2_global_js_token` (across their paths) → any other token-shaped `*.upwork.com` cookie; `visitor_gql_token` is skipped. E-AUTH **and E-SCOPE** fall through to the next token; the first that works is kept for the session. At most 6 tokens per check.
-- **The page token is captured read-only** (`src/upwork/capture.ts`, registered in `background/sw.ts`): a `webRequest.onSendHeaders` listener reads the bearer of GraphQL requests the Upwork page itself makes. It is kept in session memory, never logged or written to disk.
-- The request URL now carries `?alias=gql-query-get-auth-job-details-v2` and refuses redirects (`redirect: 'error'`); attachment downloads refuse redirects too.
-- Settings shows which login source is in use (name only). A check that stops on E-AUTH/E-SCOPE/E-BLOCKED offers **Open a job on Upwork**.
+Conclusion: no cookie, and no token the page auto-fires that a `webRequest` listener could isolate by URL, carried the needed scopes. The job page makes many GraphQL calls and the scoped `jobAuthDetails` request can only be told apart by its POST body (`scripts/phase0/lib.ts` `isJobDetailsRequest`), which `webRequest` can't read.
 
-### Manual step still required (the build does not yet carry the new permissions)
+## Token strategy built after run 2 (D-29 / D-30) — manual entry
 
-`manifest.config.ts` must gain `webRequest` and host `https://*.upwork.com/*`. An automated-safety check blocked this one edit, so apply it by hand:
+FR-10 is built as **manual token entry**, not page capture (an earlier `webRequest` capture was written then reverted). Modelled on the sibling job-watcher extension's "try several tokens" idea, without its risks (no token on disk, no page injection, no `webRequest`, no wider hosts, no unbounded request volume).
 
-```ts
-permissions: ['storage', 'cookies', 'sidePanel', 'webRequest'],
-host_permissions: ['https://www.upwork.com/*', 'https://*.upwork.com/*'],
-```
+- **A check tries an ordered token list** (`src/upwork/token.ts`, `client.ts`): the manually entered token → last token that worked (session) → cookies `UniversalSearchNuxt_vt`, `oauth2v2_token`, `oauth2_global_js_token` (across their paths) → any other token-shaped cookie; `visitor_gql_token` is skipped. E-AUTH **and E-SCOPE** fall through to the next; the first that works is kept for the session. At most 6 tokens per check.
+- **The scoped token is pasted in Settings** (`panel/components/SettingsView.tsx`): kept in `chrome.storage.session` (memory), masked, validated as token-shaped, tried first, and cleared automatically when Upwork refuses it. Never logged, saved to disk or exported (NFR-08).
+- The request URL carries `?alias=gql-query-get-auth-job-details-v2` and refuses redirects (`redirect: 'error'`); attachment downloads refuse redirects too.
+- Settings shows which login source is in use (name only). A check that stops on E-AUTH/E-SCOPE/E-BLOCKED offers **Open a job on Upwork** (to copy a fresh token).
+- Manifest unchanged: `storage, cookies, sidePanel` + `www.upwork.com` only.
 
-Until then `registerTokenCapture()` safely no-ops (it guards on `chrome.webRequest`), so the capture source is simply unavailable and only the cookie/session tokens are tried.
+Trade-off: Upwork access tokens expire (hours), so the paste is per browser session, not once.
 
 ## Still to do (Phase 0 close-out)
 
-1. **Run the probe (v2)** from a probe build, logged in: it now tries every login source and reports which one Upwork accepts. Put that source first in `TOKEN_COOKIE_NAMES` if it is a cookie.
-2. **Field-access probe** with the accepted token, to confirm it reads the buyer stats, jobs and reviews groups.
-3. **Unknown-job shape**: with an accepted token the probe finally sees the real not-found response; refine `classify.ts`/fixtures if it differs.
-4. **Attachment host**: use the attachment probe on one `uri`; add the host to `ALLOWED_HOSTS` and the manifest only if it differs.
-5. Export ~30 jobs for fixtures, then `phase0:anonymise` and `phase0:leak-check`.
+1. **Confirm a pasted token works.** Copy the bearer from a logged-in `jobAuthDetails` request into Settings, then check one job. If it reads the client fields, the gate passes.
+2. **Field-access probe** with that token (now candidate #1), to confirm it reads the buyer stats, jobs and reviews groups.
+3. **Unknown-job shape** with a scoped token — the first real not-found response; refine `classify.ts`/fixtures if it differs.
+4. **Attachment host** via the attachment probe on one `uri`; add to `ALLOWED_HOSTS` + manifest only if it differs.
+5. **HAR + `phase0:analyze`** to learn whether the scoped token is cookie-backed (`cookieNamesForToken`). If it is, reorder `TOKEN_COOKIE_NAMES` and the paste becomes unnecessary.
+6. Export ~30 jobs for fixtures, then `phase0:anonymise` and `phase0:leak-check`.
 
 ## Gate
 
-The job-details request works with one cookie token and the required fields are present: **open**. The query is valid; the cookie token tried so far lacks scopes, so the captured page token (D-30) now supplies them.
+The query and field paths are valid, but no automatically available token has the scopes, and Cloudflare intermittently challenges requests. The gate **passes once a pasted token reads the buyer fields** (step 1); until then it is held open.

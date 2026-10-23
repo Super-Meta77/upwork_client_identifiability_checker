@@ -36,8 +36,9 @@ For development, `npm run dev` serves a build that reloads on save. Load `dist/`
 | `storage` | Saves your settings, the unfinished-batch queue and the daily job count (`chrome.storage.local`). Keeps the Upwork token in memory only (`chrome.storage.session`). |
 | `cookies` | Reads the Upwork login cookies that may hold the token for the job-details request. Your password is never asked for, stored or sent. |
 | `sidePanel` | Shows the checker in Chrome's side panel. |
-| `webRequest` | Reads (never blocks or changes) the authorization header of the GraphQL requests Upwork's own job page makes, so a check can reuse the token that page uses when the login cookie lacks the needed scopes. The token is kept in memory only and never logged, saved or exported. |
-| Host access to `https://www.upwork.com/*` and `https://*.upwork.com/*` | The job-details request and attachment downloads go only to `www.upwork.com` (NFR-07). The wider `*.upwork.com` is for **reading** the login cookie, which Upwork may set on another subdomain; no request is ever sent to those hosts. |
+| Host access to `https://www.upwork.com/*` | Sends the job-details request and downloads the job's own attachments. No other host is allowed (NFR-07). |
+
+If the login cookie is not accepted, you paste the job-details token into **Settings** (see below). That token is kept in memory only (`chrome.storage.session`) and is never logged, saved to disk or exported; it is cleared when you close the browser.
 
 No content scripts and no page injection (unlike some other Upwork extensions), no remote code, and the default Manifest V3 content security policy (NFR-09).
 
@@ -62,6 +63,7 @@ No content scripts and no page injection (unlike some other Upwork extensions), 
 **Accuracy.** On results for your own past clients, open the card and enter the known person, company or website under "Known client name". The Accuracy tab then reports, per source, how many jobs produced evidence (hit rate) and how much of that evidence matched the name (precision), with counts.
 
 **Settings:**
+- **Upwork access token**: if a check fails with E-AUTH or E-SCOPE, the login cookie was not accepted. On upwork.com open a job, then in DevTools → Network find the `jobAuthDetails` request and copy its `authorization` header value after "Bearer "; paste it here. It is kept in memory only and cleared when the browser closes, so paste it again each session;
 - delay between jobs;
 - attachment analysis on or off (default on: at most 5 files per job, 10 MB each, PDF, DOCX, XLSX, PPTX, JPEG);
 - retention period;

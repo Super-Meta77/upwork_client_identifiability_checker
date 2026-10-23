@@ -2,7 +2,9 @@ import { defineManifest } from '@crxjs/vite-plugin';
 import pkg from './package.json' with { type: 'json' };
 
 // NFR-09: only storage, cookies and sidePanel, and host access to www.upwork.com.
-// An attachment host is added here only if Phase 0 shows it differs (see docs/decisions.md).
+// D-30: the scoped job-details token is supplied by manual entry (Settings), kept in session memory;
+// no webRequest, no content script, no page injection. An attachment host is added here only if
+// Phase 0 shows it differs (see docs/decisions.md).
 export default defineManifest({
   manifest_version: 3,
   name: 'Upwork Client Identifiability Checker',

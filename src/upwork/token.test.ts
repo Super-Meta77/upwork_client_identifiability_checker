@@ -25,31 +25,34 @@ describe('token candidates (FR-07–FR-09, D-29)', () => {
     expect(tokens.find((t) => t.token === 'nope')).toBeUndefined();
   });
 
-  it('orders session, then captured, then cookies, with no duplicates (FR-09)', async () => {
+  it('orders manual entry, then session, then cookies, with no duplicates (FR-09, D-30)', async () => {
     const chrome = fakeChrome();
     chrome._cookies.set('UniversalSearchNuxt_vt', 'cookie-tok');
-    await chrome.storage.session.set({ upworkToken: 'session-tok', upworkCapturedToken: 'captured-tok' });
+    await chrome.storage.session.set({ upworkManualToken: 'manual-tok', upworkToken: 'session-tok' });
     const tokens = await candidateTokens(chromeTokenSource());
     expect(tokens).toEqual([
+      { token: 'manual-tok', source: 'manual entry' },
       { token: 'session-tok', source: 'session' },
-      { token: 'captured-tok', source: 'captured page request' },
       { token: 'cookie-tok', source: 'cookie UniversalSearchNuxt_vt' },
     ]);
   });
 
-  it('keeps a token only once when the cookie, capture and session agree', async () => {
+  it('keeps a token only once when the manual, session and cookie values agree', async () => {
     const chrome = fakeChrome();
     chrome._cookies.set('UniversalSearchNuxt_vt', 'same');
-    await chrome.storage.session.set({ upworkToken: 'same', upworkCapturedToken: 'same' });
+    await chrome.storage.session.set({ upworkManualToken: 'same', upworkToken: 'same' });
     const tokens = await candidateTokens(chromeTokenSource());
-    expect(tokens).toEqual([{ token: 'same', source: 'session' }]);
+    expect(tokens).toEqual([{ token: 'same', source: 'manual entry' }]);
   });
 
-  it('keeps the token in session storage only, never on disk (NFR-08)', async () => {
+  it('keeps the manual and session tokens in session storage only, never on disk (NFR-08)', async () => {
     const chrome = fakeChrome();
     const source = chromeTokenSource();
     await source.setSession('abc');
-    expect(chrome.storage.session.dump()).toEqual({ upworkToken: 'abc' });
+    await source.setManual('xyz');
+    expect(chrome.storage.session.dump()).toEqual({ upworkToken: 'abc', upworkManualToken: 'xyz' });
     expect(chrome.storage.local.dump()).toEqual({});
+    await source.clearManual();
+    expect(await source.getManual()).toBeNull();
   });
 });

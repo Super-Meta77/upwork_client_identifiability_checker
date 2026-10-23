@@ -231,8 +231,8 @@ export function App() {
               setResumable(null);
             }}
             onOpenUpwork={() => {
-              // Open the next unchecked job on Upwork so the page refreshes the login and its token is
-              // captured (D-30). The user then presses Retry.
+              // Open the next unchecked job on Upwork so the user can copy a fresh token from its
+              // job-details request (D-30), paste it in Settings, then press Retry.
               const next = resumable?.items[resumable.nextIndex]?.url;
               if (next) window.open(next, '_blank', 'noopener');
             }}

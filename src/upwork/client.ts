@@ -79,8 +79,8 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
 
   return {
     async fetchJob(jobId) {
-      // D-29: try candidates (last working token, captured page token, then cookies) until one is
-      // accepted. A token refused for login (E-AUTH) or scope (E-SCOPE) falls through to the next.
+      // D-29/D-30: try candidates (the manually entered token, last working token, then cookies)
+      // until one is accepted. A token refused for login (E-AUTH) or scope (E-SCOPE) falls through.
       const candidates = (await candidateTokens(deps.tokens)).slice(0, MAX_TOKEN_ATTEMPTS);
       if (!candidates.length) throw new CheckerError('E-AUTH');
       let lastError: CheckerError = new CheckerError('E-AUTH');
@@ -93,8 +93,10 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
         } catch (error) {
           if (!(error instanceof CheckerError) || !TOKEN_RETRY_CODES.has(error.code)) throw error;
           lastError = error;
-          // FR-09: drop the remembered session token once it is refused, so it is not tried again.
-          if (source === 'session') await deps.tokens.clearSession();
+          // Drop a refused token so it is not tried again. A refused manual token (D-30) is cleared
+          // so Settings prompts the user to paste a fresh one; a stale session token is dropped (FR-09).
+          if (source === 'manual entry') await deps.tokens.clearManual();
+          else if (source === 'session') await deps.tokens.clearSession();
           log.warn(`token from ${source} refused (${error.code}); trying the next login source`);
         }
       }

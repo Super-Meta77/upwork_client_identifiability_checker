@@ -1,9 +1,9 @@
-// FR-07–FR-09, D-29, NFR-08: the auth token comes from the user's own Upwork login, and is kept
-// only in chrome.storage.session (memory). It is never logged, saved to disk, exported or shown.
+// FR-07–FR-09, D-29, D-30, NFR-08: the auth token comes from the user's own Upwork login, and is
+// kept only in chrome.storage.session (memory). It is never logged, saved to disk, exported or shown.
 //
-// Candidates are tried in order until one works (client.ts): the last token that worked, the token
-// captured from the job page's own request (capture.ts), then the login cookies. The first that
-// works is remembered in session for the rest of the browser session.
+// Candidates are tried in order until one works (client.ts): the token the user pasted in Settings
+// (D-30), the last token that worked, then the login cookies. The first that works is remembered in
+// session for the rest of the browser session.
 
 import {
   REJECTED_COOKIE_NAMES,
@@ -15,7 +15,7 @@ import {
 /** A token to try, with a label for the login-status line and logs. The label holds no secret. */
 export interface TokenCandidate {
   token: string;
-  /** 'session' | 'captured page request' | `cookie ${name}` | 'cookie (token-shaped)'. */
+  /** 'manual entry' | 'session' | `cookie ${name}` | 'cookie (token-shaped)'. */
   source: string;
 }
 
@@ -24,8 +24,10 @@ export interface TokenSource {
   getSession(): Promise<string | null>;
   setSession(token: string): Promise<void>;
   clearSession(): Promise<void>;
-  /** D-30: the bearer token captured from the job page's own GraphQL request, kept in memory only. */
-  getCaptured(): Promise<string | null>;
+  /** D-30: the token the user pasted in Settings, kept in memory only. */
+  getManual(): Promise<string | null>;
+  setManual(token: string): Promise<void>;
+  clearManual(): Promise<void>;
   /** FR-08: the best login cookie token, for the Phase 0 probe and the status line. */
   getCookie(): Promise<string | null>;
   /** FR-08 / D-29: every login cookie that could hold a token, best first. */
@@ -33,7 +35,7 @@ export interface TokenSource {
 }
 
 const SESSION_KEY = 'upworkToken';
-const CAPTURED_KEY = 'upworkCapturedToken';
+const MANUAL_KEY = 'upworkManualToken';
 
 /** A value that looks like an Upwork bearer token: an oauth2 token or a JWT. */
 export function isTokenShaped(value: unknown): value is string {
@@ -129,7 +131,13 @@ export function chromeTokenSource(): TokenSource {
     async clearSession() {
       await chrome.storage.session.remove(SESSION_KEY);
     },
-    getCaptured: () => readMemory(CAPTURED_KEY),
+    getManual: () => readMemory(MANUAL_KEY),
+    async setManual(token) {
+      await chrome.storage.session.set({ [MANUAL_KEY]: token });
+    },
+    async clearManual() {
+      await chrome.storage.session.remove(MANUAL_KEY);
+    },
     async getCookie() {
       const [first] = await readCookieTokens();
       return first?.token ?? null;
@@ -144,11 +152,11 @@ export async function loginSourceLabel(source: TokenSource): Promise<string | nu
   return best?.source ?? null;
 }
 
-/** The ordered, de-duplicated tokens to try (FR-09, D-29). */
+/** The ordered, de-duplicated tokens to try (FR-09, D-29, D-30). */
 export async function candidateTokens(source: TokenSource): Promise<TokenCandidate[]> {
-  const [session, captured, cookies] = await Promise.all([
+  const [manual, session, cookies] = await Promise.all([
+    source.getManual(),
     source.getSession(),
-    source.getCaptured(),
     source.listCookieTokens(),
   ]);
   const ordered: TokenCandidate[] = [];
@@ -158,8 +166,8 @@ export async function candidateTokens(source: TokenSource): Promise<TokenCandida
     seen.add(token);
     ordered.push({ token, source });
   };
+  add(manual, 'manual entry');
   add(session, 'session');
-  add(captured, 'captured page request');
   for (const c of cookies) add(c.token, c.source);
   return ordered;
 }

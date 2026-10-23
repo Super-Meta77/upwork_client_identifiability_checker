@@ -108,7 +108,7 @@ export async function runProbe(jobIds: string[], deps: ProbeDeps, onStep: (step:
     onStep(s);
   };
 
-  // List the login tokens to try (session, captured page request, cookies), by source only.
+  // List the login tokens to try (manual entry, session, cookies), by source only.
   const candidates = (await candidateTokens(deps.tokens)).slice(0, MAX_TOKEN_ATTEMPTS);
   push({
     label: `login tokens found: ${candidates.length}`,
