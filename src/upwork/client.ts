@@ -93,10 +93,13 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
         } catch (error) {
           if (!(error instanceof CheckerError) || !TOKEN_RETRY_CODES.has(error.code)) throw error;
           lastError = error;
-          // Drop a refused token so it is not tried again. A refused manual token (D-30) is cleared
-          // so Settings prompts the user to paste a fresh one; a stale session token is dropped (FR-09).
-          if (source === 'manual entry') await deps.tokens.clearManual();
-          else if (source === 'session') await deps.tokens.clearSession();
+          // Only an invalid/expired token (E-AUTH) is dropped, so a fresh paste is prompted (D-30) and
+          // a stale session token is not retried (FR-09). A merely under-scoped token (E-SCOPE) is a
+          // real token, so it is kept — the pasted token survives, and we just try the next candidate.
+          if (error.code === 'E-AUTH') {
+            if (source === 'manual entry') await deps.tokens.clearManual();
+            else if (source === 'session') await deps.tokens.clearSession();
+          }
           log.warn(`token from ${source} refused (${error.code}); trying the next login source`);
         }
       }
