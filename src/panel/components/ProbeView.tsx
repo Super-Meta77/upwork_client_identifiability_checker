@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { parseLinks } from '../../links/parse';
-import { chromeProbeDeps, probeAttachment, runProbe, type ProbeStep } from '../../upwork/probe';
+import { chromeProbeDeps, probeAttachment, probeFieldAccess, runProbe, type ProbeStep } from '../../upwork/probe';
 
 /** Phase 0 go/no-go probe. Only in dev and `npm run build:probe` builds. */
 export function ProbeView() {
@@ -16,6 +16,18 @@ export function ProbeView() {
     setSteps([]);
     try {
       await runProbe(ids, chromeProbeDeps(), (s) => setSteps((all) => [...all, s]));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fieldAccess = async () => {
+    const [first] = parseLinks(links).links;
+    if (!first) return;
+    setBusy(true);
+    setSteps([]);
+    try {
+      await probeFieldAccess(first.jobId, chromeProbeDeps(), (s) => setSteps((all) => [...all, s]));
     } finally {
       setBusy(false);
     }
@@ -37,7 +49,7 @@ export function ProbeView() {
     <section class="probe" aria-labelledby="probe-title">
       <h2 id="probe-title">Phase 0 probe</h2>
       <p class="muted">
-        Sends up to 7 requests, 3 s apart, with your login. It shows response shapes and error messages, never token values or field contents. Paste the output into
+        Each run sends up to 8 requests, 3 s apart, with your login. It shows response shapes and error messages, never token values or field contents. Paste the output into
         docs/phase0-report.md.
       </p>
       <label for="probe-links">Up to 3 job links</label>
@@ -45,6 +57,9 @@ export function ProbeView() {
       <div class="row">
         <button type="button" onClick={run} disabled={busy}>
           {busy ? 'Probing…' : 'Run probe'}
+        </button>
+        <button type="button" onClick={fieldAccess} disabled={busy}>
+          Probe field access (first link)
         </button>
       </div>
       <label for="probe-uri">One attachment uri from a captured response (optional)</label>

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { makeJpeg, makeOffice, makePdf, syntheticAttachments, type SyntheticFile } from '../../../test/synthetic/attachments';
+import { makeJpeg, makeOffice, makePdf, pseudoRandomBytes, syntheticAttachments, type SyntheticFile } from '../../../test/synthetic/attachments';
 import { AttachError, MAX_ATTACHMENT_BYTES, parseAttachment, withTimeout } from './parse';
 import { expectedKind, sniff } from './sniff';
 import { decodeXmlText, readXmlTag } from './xml-tags';
@@ -60,27 +60,18 @@ describe('limits (FR-15, D-15)', () => {
 
 describe('NFR-04: one 10 MB attachment parses in under 3 s', () => {
   const pad = MAX_ATTACHMENT_BYTES - 200 * 1024;
+  const big: Record<'pdf' | 'docx' | 'jpg', Uint8Array> = { pdf: new Uint8Array(), docx: new Uint8Array(), jpg: new Uint8Array() };
 
-  it('PDF', async () => {
-    const pdf = await makePdf({ author: 'Big File' }, { padBytes: pad });
-    const t = performance.now();
-    const props = await parseAttachment('big.pdf', pdf);
-    expect(performance.now() - t).toBeLessThan(3000);
-    expect(props.entries[0]?.value).toBe('Big File');
-  });
+  // Building the 10 MB files is not what NFR-04 measures, and is slow on a busy machine.
+  beforeAll(async () => {
+    big.pdf = await makePdf({ author: 'Big File' }, { padBytes: pad });
+    big.docx = makeOffice('word/document.xml', { creator: 'Big File' }, { 'word/media/image1.bin': pseudoRandomBytes(pad) });
+    big.jpg = makeJpeg({ artist: 'Big File' }, pad);
+  }, 60_000);
 
-  it('DOCX', async () => {
-    const { pseudoRandomBytes } = await import('../../../test/synthetic/attachments');
-    const docx = makeOffice('word/document.xml', { creator: 'Big File' }, { 'word/media/image1.bin': pseudoRandomBytes(pad) });
+  it.each(['pdf', 'docx', 'jpg'] as const)('%s', async (kind) => {
     const t = performance.now();
-    await parseAttachment('big.docx', docx);
-    expect(performance.now() - t).toBeLessThan(3000);
-  });
-
-  it('JPEG', async () => {
-    const jpeg = makeJpeg({ artist: 'Big File' }, pad);
-    const t = performance.now();
-    const props = await parseAttachment('big.jpg', jpeg);
+    const props = await parseAttachment(`big.${kind}`, big[kind]);
     expect(performance.now() - t).toBeLessThan(3000);
     expect(props.entries[0]?.value).toBe('Big File');
   });

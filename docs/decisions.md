@@ -17,7 +17,7 @@ Changes to *Upwork Client Identifiability Checker — Project Requirements* (Oct
 | D-09 | S1 placeholder filter = list + shapes: no letters, 2 characters or fewer, N/A, private, individual, self, freelance… | Placeholder list from 30 responses only |
 | D-10 | The schema requires only `opening.job.info.title` and the `buyer` object. Everything else may be null or missing. | FR-14 did not list required fields |
 | D-11 | GraphQL `errors[]` are classified **before** schema validation. A permission error on one field gives E-SCOPE, never "no evidence". "Cannot query field" or a validation error gives E-FORMAT. | Errors returned with HTTP 200 |
-| D-12 | New code **E-BLOCKED**: HTTP 403 with a non-JSON body (a bot-protection page). The batch stops with "Upwork showed a check page. Open upwork.com in a tab, complete it, then press Retry." | A 403 challenge misread as a login problem (E-AUTH) |
+| D-12 | New code **E-BLOCKED**: HTTP 403 with a Cloudflare challenge page (`cf-mitigated: challenge`, `/cdn-cgi/challenge-platform/`, or a "Just a moment" / "Attention Required" title). The batch stops with "Upwork showed a check page. Open upwork.com in a tab, complete it, then press Retry." Any other 403 is E-AUTH. *Revised 2026-10-22: the Phase 0 probe showed Upwork answers an invalid token with a plain 403 HTML page.* | A 403 challenge misread as a login problem (E-AUTH), and vice versa |
 | D-13 | FR-12 reads "one job-details request per attempt, at most two attempts". Every Upwork request, attachments included, passes one serial gate (`src/upwork/gate.ts`). | FR-12 vs the E-NETWORK and FR-10 retries |
 | D-14 | Attachment downloads happen in `src/upwork/`; the parsers only receive bytes. | NFR-12 vs the diagram |
 | D-15 | Attachment hardening: the type comes from the file's first bytes; the 10 MB cap is enforced while downloading; **fflate replaces JSZip**, with a small central-directory reader that unpacks only `docProps/*` and stops any entry past 1 MB; pdf-lib with `ignoreEncryption`, and encrypted PDFs give E-ATTACH; 3 s parse timeout. | Zip bombs, untrusted `.length`, encrypted PDFs |
@@ -69,9 +69,9 @@ Each value below is a guess until `docs/phase0-report.md` says otherwise. Update
 
 | Value | Where | Current guess |
 | --- | --- | --- |
-| Token cookie name | `src/upwork/config.ts` `TOKEN_COOKIE_NAME` | `oauth2_global_js_token` |
-| Query shape and arguments | `src/upwork/query.ts` | `jobAuthDetails(id: $id)` with the spec's fields |
-| Job ID variable format | `src/upwork/config.ts` `toQueryId` | the ID with its `~` |
+| Token cookie name | `src/upwork/config.ts` `TOKEN_COOKIE_NAME` | `oauth2_global_js_token`. **Probe 2026-10-22: it exists but lacks the scopes for buyer stats, jobs and work history (E-SCOPE).** The job page's own token is needed |
+| Query shape and arguments | `src/upwork/query.ts` | **Confirmed by probe 2026-10-22:** `jobAuthDetails(id: $id)` and all field paths validate |
+| Job ID variable format | `src/upwork/config.ts` `toQueryId` | The ID with its `~`. It is accepted as a variable; the lookup is not yet confirmed |
 | Attachment host and auth | `config.ts` `ALLOWED_HOSTS`, `ATTACHMENTS_NEED_TOKEN`, manifest | `www.upwork.com`, bearer token + cookies |
 | Placeholder company names | `src/extract/lists/placeholders.ts` | common placeholders and shape rules |
 | Smallest company-size bucket | `src/extract/lists/company-sizes.ts` | `1`, "individual", "just me"… |

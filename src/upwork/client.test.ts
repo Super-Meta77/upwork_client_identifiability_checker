@@ -71,7 +71,12 @@ describe('error codes (spec "Error handling")', () => {
   const cases: [string, FetchHandler, ErrorCode][] = [
     ['HTTP 401 → E-AUTH', () => jsonResponse({}, 401), 'E-AUTH'],
     ['HTTP 403 with JSON → E-AUTH', () => jsonResponse({ error: 'forbidden' }, 403), 'E-AUTH'],
-    ['HTTP 403 with a challenge page → E-BLOCKED (D-12)', () => htmlResponse('<html>Just a moment…</html>', 403), 'E-BLOCKED'],
+    ['HTTP 403 with a challenge page → E-BLOCKED (D-12)', () => htmlResponse('<html><head><title>Just a moment...</title></head></html>', 403), 'E-BLOCKED'],
+    ['HTTP 403 with a Cloudflare challenge script → E-BLOCKED', () => htmlResponse('<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1"></script>', 403), 'E-BLOCKED'],
+    ['HTTP 403 flagged by cf-mitigated → E-BLOCKED', () => new Response('<html></html>', { status: 403, headers: { 'content-type': 'text/html', 'cf-mitigated': 'challenge' } }), 'E-BLOCKED'],
+    ['HTTP 403 with an ordinary HTML page (invalid token, seen in Phase 0) → E-AUTH', () => htmlResponse('<html><head><title>Upwork</title></head><body>captcha recaptcha</body></html>', 403), 'E-AUTH'],
+    ['real scope error from the Phase 0 probe → E-SCOPE', () => jsonResponse(errorFixture('probe-2026-10-22-scope-aborted')), 'E-SCOPE'],
+    ['real validation error from the Phase 0 probe → E-FORMAT', () => jsonResponse(errorFixture('probe-2026-10-22-validation')), 'E-FORMAT'],
     ['GraphQL unauthenticated → E-AUTH', () => jsonResponse(errorFixture('unauthenticated')), 'E-AUTH'],
     ['GraphQL permission error → E-SCOPE', () => jsonResponse(errorFixture('permission')), 'E-SCOPE'],
     ['per-field permission error with partial data → E-SCOPE, not "no evidence" (D-11)', () => jsonResponse(errorFixture('partial-permission')), 'E-SCOPE'],
@@ -97,6 +102,8 @@ describe('error codes (spec "Error handling")', () => {
     await expect(client.fetchJob(JOB_ID)).rejects.toThrow('opening.job.info.title');
     const v = setup(() => jsonResponse(errorFixture('validation')));
     await expect(v.client.fetchJob(JOB_ID)).rejects.toThrow('contractorName');
+    const real = setup(() => jsonResponse(errorFixture('probe-2026-10-22-validation')));
+    await expect(real.client.fetchJob(JOB_ID)).rejects.toThrow('field: jobAuthDetails.buyer.workHistory.contractorInfo.contractorNamee');
   });
 
   it('flags 5xx as a server error so the runner can count them', async () => {
@@ -135,6 +142,16 @@ describe('token handling (FR-07–FR-09, FR-11)', () => {
   it('drops a stale session token and retries once with the cookie token', async () => {
     const { client, guarded, state } = setup(
       (call) => (call.headers.authorization === 'Bearer stale' ? jsonResponse({}, 401) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
+      { session: 'stale' },
+    );
+    await client.fetchJob(JOB_ID);
+    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer stale', 'Bearer cookie-token']);
+    expect(state.session).toBe('cookie-token');
+  });
+
+  it('falls back to the cookie token when a stale token gets the 403 HTML page (Phase 0 finding)', async () => {
+    const { client, guarded, state } = setup(
+      (call) => (call.headers.authorization === 'Bearer stale' ? htmlResponse('<html><title>Upwork</title></html>', 403) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
       { session: 'stale' },
     );
     await client.fetchJob(JOB_ID);

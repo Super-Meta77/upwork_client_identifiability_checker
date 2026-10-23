@@ -31,10 +31,12 @@ export function classifyGraphqlErrors(errors: readonly GraphqlError[], hasData: 
   const any = (code: RegExp, message: RegExp) => all.find((e) => code.test(e.code) || message.test(e.message));
 
   if (any(/UNAUTHENTICATED/i, AUTH)) return new CheckerError('E-AUTH');
-  const format = any(/GRAPHQL_(?:VALIDATION|PARSE)_FAILED/i, FORMAT);
+  const format = any(/GRAPHQL_(?:VALIDATION|PARSE)_FAILED|^ValidationError$/i, FORMAT);
   if (format) {
+    // Upwork: "Validation error (FieldUndefined@[jobAuthDetails/buyer/…/contractorName]) : Field '…' is undefined"
+    const at = /@\[([\w/]+)\]/.exec(format.message)?.[1]?.replace(/\//g, '.');
     const field = /field ["'`]?([\w.]+)["'`]?/i.exec(format.message)?.[1];
-    return new CheckerError('E-FORMAT', format.path || field || 'query');
+    return new CheckerError('E-FORMAT', format.path || at || field || 'query');
   }
   const notFound = any(/NOT_FOUND/i, NOT_FOUND);
   if (notFound && !hasData) return new CheckerError('E-NOTFOUND');
@@ -48,10 +50,24 @@ function isJson(response: Response): boolean {
   return /json/i.test(response.headers.get('content-type') ?? '');
 }
 
+const CHALLENGE_PAGE = /\/cdn-cgi\/challenge-platform\/|<title>[^<]*(?:just a moment|attention required)[^<]*<\/title>/i;
+
+/**
+ * D-12 (revised after the Phase 0 probe): Upwork answers an invalid token with a 403 HTML page, so a
+ * 403 page is a bot check only when it carries Cloudflare's challenge markers.
+ */
+export function isChallengePage(response: Response, body: string): boolean {
+  return /challenge/i.test(response.headers.get('cf-mitigated') ?? '') || CHALLENGE_PAGE.test(body);
+}
+
 /** Reads one job-details response. Throws CheckerError with the code from the "Error handling" table. */
 export async function readJobResponse(jobId: string, response: Response): Promise<JobData> {
   if (response.status === 401) throw new CheckerError('E-AUTH');
-  if (response.status === 403) throw new CheckerError(isJson(response) ? 'E-AUTH' : 'E-BLOCKED');
+  if (response.status === 403) {
+    if (isJson(response)) throw new CheckerError('E-AUTH');
+    const page = await response.text().catch(() => '');
+    throw new CheckerError(isChallengePage(response, page) ? 'E-BLOCKED' : 'E-AUTH');
+  }
   if (response.status === 429) throw new CheckerError('E-RATE');
   if (response.status >= 500) throw new CheckerError('E-NETWORK', `HTTP ${response.status}`, { serverError: true });
 

@@ -1,6 +1,6 @@
 // Phase 0 probe (dev builds only): sends the provisional query with the cookie token and records
 // response shapes and error shapes. It reports field paths, types and statuses, never token values
-// or field contents. At most 10 requests, 3 s apart.
+// or field contents. Each run sends at most 8 requests, 3 s apart.
 
 import { GRAPHQL_URL, TOKEN_COOKIE_NAME, toQueryId } from './config';
 import { upworkGate, type Gate } from './gate';
@@ -52,10 +52,22 @@ function errorsOf(body: unknown): ProbeStep['errors'] {
   const errors = (body as { errors?: unknown } | null)?.errors;
   if (!Array.isArray(errors)) return [];
   return errors.map((e: { message?: unknown; path?: unknown; extensions?: { code?: unknown; classification?: unknown } }) => ({
-    message: String(e?.message ?? '').slice(0, 300),
+    message: String(e?.message ?? '').slice(0, 2000),
     code: String(e?.extensions?.code ?? e?.extensions?.classification ?? ''),
     path: Array.isArray(e?.path) ? e.path.join('.') : '',
   }));
+}
+
+/** For non-JSON answers: the page title and the headers that tell a Cloudflare check from an error page. */
+function pageClues(response: Response, text: string): string[] {
+  const title = /<title[^>]*>([^<]{0,120})<\/title>/i.exec(text)?.[1]?.trim();
+  return [
+    `non-JSON body (${text.length} chars)`,
+    `title: ${title ?? '(none)'}`,
+    `server: ${response.headers.get('server') ?? '(none)'}`,
+    `cf-mitigated: ${response.headers.get('cf-mitigated') ?? '(none)'}`,
+    `cloudflare challenge script: ${text.includes('/cdn-cgi/challenge-platform/') ? 'yes' : 'no'}`,
+  ];
 }
 
 async function graphql(deps: ProbeDeps, label: string, query: string, id: string, token: string | null): Promise<ProbeStep> {
@@ -78,7 +90,7 @@ async function graphql(deps: ProbeDeps, label: string, query: string, id: string
         label,
         status: response.status,
         contentType: response.headers.get('content-type'),
-        shape: body ? describeShape((body as { data?: unknown }).data ?? null, 'data') : [`non-JSON body (${text.length} chars)`],
+        shape: body ? describeShape((body as { data?: unknown }).data ?? null, 'data') : pageClues(response, text),
         errors: errorsOf(body),
       };
     } catch (e) {
@@ -117,6 +129,53 @@ export async function runProbe(jobIds: string[], deps: ProbeDeps, onStep: (step:
   push(await graphql(deps, 'invalid token', JOB_DETAILS_QUERY, toQueryId(probeId), 'invalid-token-for-phase0-probe'));
   await next();
   push(await graphql(deps, 'misspelled field', JOB_DETAILS_QUERY.replace('contractorName', 'contractorNamee'), toQueryId(probeId), cookie));
+  return steps;
+}
+
+/** The job-details fields split into groups, so a scope refusal can be traced to the groups it affects. */
+export const FIELD_GROUPS: readonly { name: string; uses: string; selection: string }[] = [
+  { name: 'job post', uses: 'S2 text, S2 files', selection: 'opening { job { info { title } description attachments { fileName uri length } } questions { question } }' },
+  { name: 'company', uses: 'S1, S3', selection: 'buyer { info { company { name companyId contractDate profile { industry size } } } }' },
+  { name: 'location', uses: 'S3', selection: 'buyer { info { location { city country countryTimezone } } }' },
+  { name: 'enterprise flag', uses: 'S3', selection: 'buyer { enterprise }' },
+  { name: 'spend and hires', uses: 'S3', selection: 'buyer { info { stats { totalCharges { amount } totalAssignments feedbackCount } } }' },
+  { name: 'posted and open jobs', uses: 'S3', selection: 'buyer { info { jobs { postedCount openJobs { title } } } }' },
+  { name: 'work history and reviews', uses: 'S3, S5', selection: 'buyer { workHistory { jobInfo { title } feedback { comment } feedbackToClient { comment } contractorInfo { contractorName } } }' },
+];
+
+export const groupQuery = (selection: string): string => `query ProbeGroup($id: ID!) { jobAuthDetails(id: $id) { ${selection} } }`;
+
+function verdictOf(step: ProbeStep): string {
+  if (step.status !== 200) return `failed (HTTP ${step.status ?? 'no response'})`;
+  if (step.errors.some((e) => /permission|scope/i.test(e.message))) return 'REFUSED (scope)';
+  if (step.errors.length) return `error: ${step.errors[0]?.code || step.errors[0]?.message.slice(0, 80)}`;
+  return step.shape.some((s) => s.startsWith('data: null')) ? 'empty' : 'ALLOWED';
+}
+
+/**
+ * Second probe: asks for each field group on its own with the cookie token, so the report shows which
+ * groups the token may read. Then asks for an unknown job with only the job-post group, to see the
+ * not-found shape without a scope refusal hiding it. 8 requests, 3 s apart.
+ */
+export async function probeFieldAccess(jobId: string, deps: ProbeDeps, onStep: (step: ProbeStep) => void): Promise<ProbeStep[]> {
+  const steps: ProbeStep[] = [];
+  const cookie = await deps.tokens.getCookie();
+  if (!cookie) {
+    const missing: ProbeStep = { label: `cookie ${TOKEN_COOKIE_NAME}`, status: null, contentType: null, shape: ['missing'], errors: [] };
+    onStep(missing);
+    return [missing];
+  }
+  for (const [i, group] of FIELD_GROUPS.entries()) {
+    if (i > 0) await deps.pause(SPACING_MS);
+    const step = await graphql(deps, `field group "${group.name}" (${group.uses})`, groupQuery(group.selection), toQueryId(jobId), cookie);
+    step.note = verdictOf(step);
+    steps.push(step);
+    onStep(step);
+  }
+  await deps.pause(SPACING_MS);
+  const unknown = await graphql(deps, 'unknown job id, job-post fields only', groupQuery(FIELD_GROUPS[0]!.selection), '~01000000000000000000', cookie);
+  steps.push(unknown);
+  onStep(unknown);
   return steps;
 }
 

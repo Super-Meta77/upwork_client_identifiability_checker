@@ -1,0 +1,9 @@
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "The client or authentication token doesn't have enough oauth2 permissions/scopes to access: [BuyerAssignmentsStats.feedbackCount, BuyerAssignmentsStats.totalAssignments, BuyerAssignmentsStats.totalCharges, BuyerJobs.openJobs, BuyerJobs.postedCount, BuyerWorkHistoryFeedback.comment, BuyerWorkHistoryI",
+      "extensions": { "classification": "ExecutionAborted" }
+    }
+  ]
+}
