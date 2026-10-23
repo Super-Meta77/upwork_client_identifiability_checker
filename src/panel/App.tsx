@@ -230,6 +230,12 @@ export function App() {
               await clearQueue();
               setResumable(null);
             }}
+            onOpenUpwork={() => {
+              // Open the next unchecked job on Upwork so the page refreshes the login and its token is
+              // captured (D-30). The user then presses Retry.
+              const next = resumable?.items[resumable.nextIndex]?.url;
+              if (next) window.open(next, '_blank', 'noopener');
+            }}
             onOpenRow={openRow}
           />
         ) : tab === 'history' ? (

@@ -34,11 +34,12 @@ For development, `npm run dev` serves a build that reloads on save. Load `dist/`
 | Permission | Why |
 | --- | --- |
 | `storage` | Saves your settings, the unfinished-batch queue and the daily job count (`chrome.storage.local`). Keeps the Upwork token in memory only (`chrome.storage.session`). |
-| `cookies` | Reads the one Upwork login cookie that holds the token for the job-details request. Your password is never asked for, stored or sent. |
+| `cookies` | Reads the Upwork login cookies that may hold the token for the job-details request. Your password is never asked for, stored or sent. |
 | `sidePanel` | Shows the checker in Chrome's side panel. |
-| Host access to `https://www.upwork.com/*` | Sends the job-details request and downloads the job's own attachments. No other host is allowed (NFR-07). |
+| `webRequest` | Reads (never blocks or changes) the authorization header of the GraphQL requests Upwork's own job page makes, so a check can reuse the token that page uses when the login cookie lacks the needed scopes. The token is kept in memory only and never logged, saved or exported. |
+| Host access to `https://www.upwork.com/*` and `https://*.upwork.com/*` | The job-details request and attachment downloads go only to `www.upwork.com` (NFR-07). The wider `*.upwork.com` is for **reading** the login cookie, which Upwork may set on another subdomain; no request is ever sent to those hosts. |
 
-No content scripts, no remote code and the default Manifest V3 content security policy (NFR-09).
+No content scripts and no page injection (unlike some other Upwork extensions), no remote code, and the default Manifest V3 content security policy (NFR-09).
 
 ## Use
 
@@ -117,10 +118,10 @@ The spec makes Phase 0 a go/no-go gate. You need your logged-in Chrome profile f
    - Run `npm run phase0:leak-check`.
    - Read each fixture once by eye before committing.
 5. **Probe from the extension.** Build with `npm run build:probe`, reload the extension, open **Settings**, scroll to **Phase 0 probe** and run it with 3 job links.
-   - It confirms whether the request works from the extension with only the cookie token. It also records the error shapes for an unknown job, no token, a bad token and a misspelled field.
-   - At most 7 requests, 3 s apart. Paste the output into the report.
-6. **Update the provisional values** listed in `docs/decisions.md` ("Values Phase 0 must confirm"), then run `npm run ci`.
-7. **Gate.** If the job-details request does not work with one cookie token, or the needed fields are missing, stop and revise the requirements before going further.
+   - It tries each login source in turn (session, the captured page request, then the cookies) and reports which one Upwork accepts, then records the error shapes for an unknown job, no token, a bad token and a misspelled field. Use **Probe field access** to confirm the accepted token reads the buyer stats, jobs and reviews.
+   - Requests are 3 s apart. Paste the output into the report.
+6. **Update the provisional values** listed in `docs/decisions.md` ("Values Phase 0 must confirm") — in particular put the accepted source first in `TOKEN_COOKIE_NAMES` — then run `npm run ci`.
+7. **Gate.** If no login source reads the needed fields, stop and revise the requirements before going further.
 
 ## Development
 

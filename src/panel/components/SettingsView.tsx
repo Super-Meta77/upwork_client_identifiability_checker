@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { S3Attribute } from '../../core/types';
 import type { Settings } from '../../store/settings';
+import { getLoginStatus } from '../../upwork';
 import { S3_LABEL } from '../labels';
 
 interface Props {
@@ -17,12 +18,20 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
   const [sites, setSites] = useState(settings.extraGenericSites.join('\n'));
   const [endings, setEndings] = useState(settings.extraLegalEndings.join('\n'));
   const [status, setStatus] = useState<string | null>(null);
+  const [loginSource, setLoginSource] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     setDraft(settings);
     setSites(settings.extraGenericSites.join('\n'));
     setEndings(settings.extraLegalEndings.join('\n'));
   }, [settings]);
+
+  // The login source backing checks, by name only — never the token (NFR-08).
+  useEffect(() => {
+    void getLoginStatus()
+      .then(setLoginSource)
+      .catch(() => setLoginSource(null));
+  }, []);
 
   const num = (key: 'delaySeconds' | 'retentionDays' | 'dailyLimit' | 's3Threshold') => (e: Event) =>
     setDraft((d) => ({ ...d, [key]: Number((e.currentTarget as HTMLInputElement).value) }));
@@ -42,6 +51,14 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
         }
       }}
     >
+      {loginSource !== undefined && (
+        <p class={`notice${loginSource ? '' : ' error'}`} role="status">
+          {loginSource
+            ? `Upwork login detected (${loginSource}).`
+            : 'No Upwork login found. Open a job page on www.upwork.com while signed in, then reopen this panel.'}
+        </p>
+      )}
+
       <label for="delay">Delay between jobs (seconds, 3 to 30)</label>
       <input id="delay" type="number" min={3} max={30} required value={draft.delaySeconds} onInput={num('delaySeconds')} />
 

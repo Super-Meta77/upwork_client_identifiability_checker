@@ -1,12 +1,12 @@
-// Phase 0 probe (dev builds only): sends the provisional query with the cookie token and records
-// response shapes and error shapes. It reports field paths, types and statuses, never token values
-// or field contents. Each run sends at most 8 requests, 3 s apart.
+// Phase 0 probe (dev builds only): sends the provisional query with each login token and records
+// response shapes and error shapes. It reports field paths, types, statuses and which login source a
+// token came from, never token values or field contents. It paces every request 3 s apart.
 
-import { GRAPHQL_URL, TOKEN_COOKIE_NAME, toQueryId } from './config';
+import { GRAPHQL_URL, MAX_TOKEN_ATTEMPTS, toQueryId } from './config';
 import { upworkGate, type Gate } from './gate';
 import { resolveAllowedUrl } from './hosts';
 import { JOB_DETAILS_QUERY } from './query';
-import { chromeTokenSource, type TokenSource } from './token';
+import { candidateTokens, chromeTokenSource, type TokenCandidate, type TokenSource } from './token';
 
 export interface ProbeStep {
   label: string;
@@ -99,15 +99,25 @@ async function graphql(deps: ProbeDeps, label: string, query: string, id: string
   });
 }
 
+const UNKNOWN_ID = '~01000000000000000000';
+
 export async function runProbe(jobIds: string[], deps: ProbeDeps, onStep: (step: ProbeStep) => void): Promise<ProbeStep[]> {
   const steps: ProbeStep[] = [];
   const push = (s: ProbeStep) => {
     steps.push(s);
     onStep(s);
   };
-  const cookie = await deps.tokens.getCookie();
-  push({ label: `cookie ${TOKEN_COOKIE_NAME}`, status: null, contentType: null, shape: [cookie ? `present (${cookie.length} chars)` : 'missing'], errors: [] });
-  if (!cookie) return steps;
+
+  // List the login tokens to try (session, captured page request, cookies), by source only.
+  const candidates = (await candidateTokens(deps.tokens)).slice(0, MAX_TOKEN_ATTEMPTS);
+  push({
+    label: `login tokens found: ${candidates.length}`,
+    status: null,
+    contentType: null,
+    shape: candidates.map((c, i) => `${i + 1}. ${c.source} (${c.token.length} chars)`),
+    errors: [],
+  });
+  if (!candidates.length) return steps;
 
   let first = true;
   const next = async () => {
@@ -115,20 +125,37 @@ export async function runProbe(jobIds: string[], deps: ProbeDeps, onStep: (step:
     first = false;
   };
 
-  for (const id of jobIds.slice(0, 3)) {
+  const probeId = jobIds[0] ?? UNKNOWN_ID;
+
+  // Try each token against the first job; stop at the first one Upwork accepts.
+  let working: TokenCandidate | null = null;
+  for (const candidate of candidates) {
     await next();
-    push(await graphql(deps, `job details ${id} (cookie token)`, JOB_DETAILS_QUERY, toQueryId(id), cookie));
+    const step = await graphql(deps, `token from ${candidate.source}`, JOB_DETAILS_QUERY, toQueryId(probeId), candidate.token);
+    if (!step.note) step.note = verdictOf(step);
+    push(step);
+    if (step.note === 'ALLOWED') {
+      working = candidate;
+      break;
+    }
   }
 
-  const probeId = jobIds[0] ?? '~01000000000000000000';
+  const token = (working ?? candidates[0]!).token;
+  const label = working ? `accepted token from ${working.source}` : 'first token';
+
+  // The other job ids, then the error shapes, all with the chosen token.
+  for (const id of jobIds.slice(1, 3)) {
+    await next();
+    push(await graphql(deps, `job details ${id} (${label})`, JOB_DETAILS_QUERY, toQueryId(id), token));
+  }
   await next();
-  push(await graphql(deps, 'unknown job id', JOB_DETAILS_QUERY, '~01000000000000000000', cookie));
+  push(await graphql(deps, 'unknown job id', JOB_DETAILS_QUERY, UNKNOWN_ID, token));
   await next();
   push(await graphql(deps, 'no token (cookies only)', JOB_DETAILS_QUERY, toQueryId(probeId), null));
   await next();
   push(await graphql(deps, 'invalid token', JOB_DETAILS_QUERY, toQueryId(probeId), 'invalid-token-for-phase0-probe'));
   await next();
-  push(await graphql(deps, 'misspelled field', JOB_DETAILS_QUERY.replace('contractorName', 'contractorNamee'), toQueryId(probeId), cookie));
+  push(await graphql(deps, 'misspelled field', JOB_DETAILS_QUERY.replace('contractorName', 'contractorNamee'), toQueryId(probeId), token));
   return steps;
 }
 
@@ -159,21 +186,22 @@ function verdictOf(step: ProbeStep): string {
  */
 export async function probeFieldAccess(jobId: string, deps: ProbeDeps, onStep: (step: ProbeStep) => void): Promise<ProbeStep[]> {
   const steps: ProbeStep[] = [];
-  const cookie = await deps.tokens.getCookie();
-  if (!cookie) {
-    const missing: ProbeStep = { label: `cookie ${TOKEN_COOKIE_NAME}`, status: null, contentType: null, shape: ['missing'], errors: [] };
+  const [best] = await candidateTokens(deps.tokens);
+  if (!best) {
+    const missing: ProbeStep = { label: 'login token', status: null, contentType: null, shape: ['no login token found'], errors: [] };
     onStep(missing);
     return [missing];
   }
+  const token = best.token;
   for (const [i, group] of FIELD_GROUPS.entries()) {
     if (i > 0) await deps.pause(SPACING_MS);
-    const step = await graphql(deps, `field group "${group.name}" (${group.uses})`, groupQuery(group.selection), toQueryId(jobId), cookie);
-    step.note = verdictOf(step);
+    const step = await graphql(deps, `field group "${group.name}" (${group.uses}) [${best.source}]`, groupQuery(group.selection), toQueryId(jobId), token);
+    if (!step.note) step.note = verdictOf(step);
     steps.push(step);
     onStep(step);
   }
   await deps.pause(SPACING_MS);
-  const unknown = await graphql(deps, 'unknown job id, job-post fields only', groupQuery(FIELD_GROUPS[0]!.selection), '~01000000000000000000', cookie);
+  const unknown = await graphql(deps, 'unknown job id, job-post fields only', groupQuery(FIELD_GROUPS[0]!.selection), UNKNOWN_ID, token);
   steps.push(unknown);
   onStep(unknown);
   return steps;

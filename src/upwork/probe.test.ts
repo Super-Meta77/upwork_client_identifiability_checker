@@ -10,7 +10,14 @@ const SECRET = 'probe-secret-token-value';
 function deps(cookie: string | null, handler = () => jsonResponse(jobFixture('synthetic-01-s1-company'))) {
   const guarded = createGuardedFetch(handler);
   const pauses: number[] = [];
-  const tokens: TokenSource = { getSession: async () => null, setSession: async () => {}, clearSession: async () => {}, getCookie: async () => cookie };
+  const tokens: TokenSource = {
+    getSession: async () => null,
+    setSession: async () => {},
+    clearSession: async () => {},
+    getCaptured: async () => null,
+    getCookie: async () => cookie,
+    listCookieTokens: async () => (cookie ? [{ token: cookie, source: 'cookie oauth2_global_js_token' }] : []),
+  };
   const d: ProbeDeps = { fetch: guarded.fetch, tokens, gate: createGate(), pause: async (ms) => void pauses.push(ms) };
   return { d, guarded, pauses };
 }
@@ -22,25 +29,46 @@ describe('Phase 0 probe', () => {
     expect(shape.join()).not.toContain('Acme');
   });
 
-  it('stops when the cookie is missing', async () => {
+  it('stops when no login token is found', async () => {
     const { d, guarded } = deps(null);
     const steps = await runProbe(['~01a'], d, () => {});
     expect(steps).toHaveLength(1);
-    expect(steps[0]?.shape).toEqual(['missing']);
+    expect(steps[0]?.label).toContain('login tokens found: 0');
     expect(guarded.calls).toHaveLength(0);
   });
 
-  it('runs at most 7 requests, 3 s apart, and never reports the token or field contents', async () => {
+  it('runs 7 requests, 3 s apart, for one refused token, and never reports the token or field contents', async () => {
     const { d, guarded, pauses } = deps(SECRET, () => jsonResponse(errorFixture('permission')));
     const seen: string[] = [];
     const steps = await runProbe(['~01a', '~01b', '~01c', '~01d'], d, (s) => seen.push(s.label));
     expect(guarded.calls).toHaveLength(7);
     expect(pauses).toEqual(Array(6).fill(3000));
-    expect(seen[0]).toContain('cookie');
+    expect(seen[0]).toContain('login tokens found');
+    // steps[1] is the first request: the one candidate token, refused for scope.
     expect(steps[1]?.errors[0]).toMatchObject({ code: 'FORBIDDEN', path: 'jobAuthDetails' });
+    expect(steps[1]?.note).toBe('REFUSED (scope)');
     expect(guarded.calls.find((c) => !c.headers.authorization)).toBeTruthy();
     expect(guarded.calls.some((c) => c.body?.includes('contractorNamee'))).toBe(true);
     expect(JSON.stringify(steps)).not.toContain(SECRET);
+  });
+
+  it('tries each login token and stops at the first one Upwork accepts', async () => {
+    const guarded = createGuardedFetch((call) => (call.headers.authorization === 'Bearer good' ? jsonResponse(jobFixture('synthetic-01-s1-company')) : jsonResponse(errorFixture('permission'))));
+    const pauses: number[] = [];
+    const tokens: TokenSource = {
+      getSession: async () => null,
+      setSession: async () => {},
+      clearSession: async () => {},
+      getCaptured: async () => 'good',
+      getCookie: async () => 'scoped',
+      listCookieTokens: async () => [{ token: 'scoped', source: 'cookie oauth2_global_js_token' }],
+    };
+    const d: ProbeDeps = { fetch: guarded.fetch, tokens, gate: createGate(), pause: async (ms) => void pauses.push(ms) };
+    const steps = await runProbe(['~01a'], d, () => {});
+    // tokens-found, then captured 'good' (ALLOWED); the scoped cookie is never reached.
+    expect(steps[0]?.shape).toEqual(['1. captured page request (4 chars)', '2. cookie oauth2_global_js_token (6 chars)']);
+    expect(steps[1]).toMatchObject({ label: 'token from captured page request', note: 'ALLOWED' });
+    expect(guarded.calls.some((c) => c.headers.authorization === 'Bearer scoped')).toBe(false);
   });
 
   it('reports a non-JSON response with its title and Cloudflare clues, and a failed request', async () => {
@@ -71,9 +99,9 @@ describe('Phase 0 probe', () => {
     expect(groupQuery('buyer { enterprise }')).toBe('query ProbeGroup($id: ID!) { jobAuthDetails(id: $id) { buyer { enterprise } } }');
   });
 
-  it('field-access probe stops without a cookie', async () => {
+  it('field-access probe stops without a login token', async () => {
     const { d, guarded } = deps(null);
-    expect((await probeFieldAccess('~01a', d, () => {}))[0]?.shape).toEqual(['missing']);
+    expect((await probeFieldAccess('~01a', d, () => {}))[0]?.shape).toEqual(['no login token found']);
     expect(guarded.calls).toHaveLength(0);
   });
 

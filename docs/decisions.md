@@ -34,6 +34,8 @@ Changes to *Upwork Client Identifiability Checker — Project Requirements* (Oct
 | D-26 | Office and EXIF properties are read with a small XML tag reader, not DOMParser, so parsing is pure and runs in tests. | — |
 | D-27 | FR-10 (capturing the page's token) is built **only if** Phase 0 shows the cookie token is refused for scope. If so, the panel adds a temporary `webRequest` listener, captures one token, removes the listener, and `webRequest` is added to the manifest and NFR-09. **Not built in this version.** | NFR-09 vs FR-10 |
 | D-28 | Batch work is in Phase 1. The Phase 1 gate reads "the S1 extractor ran", found or not. The plan is about 5.5 weeks. | Phase balance; gate wording |
+| D-29 | **A check tries an ordered list of login tokens, not one cookie.** Order: the last token that worked (session), the token captured from the page's own request (D-30), then the login cookies `UniversalSearchNuxt_vt`, `oauth2v2_token`, `oauth2_global_js_token` (across the paths they are set on), then any other token-shaped (`oauth2v2_`/`eyJ`) `*.upwork.com` cookie, skipping `visitor_gql_token`. A token refused for login (E-AUTH) **or scope (E-SCOPE)** falls through to the next; any other error stops the check. At most `MAX_TOKEN_ATTEMPTS` (6) tokens per check; the first that works is kept for the session, so after the first job a check normally makes one request. The request URL gains `?alias=gql-query-get-auth-job-details-v2` and refuses redirects. Host access widens to `https://*.upwork.com/*` **for cookie reading only**; requests still go only to `www.upwork.com` (fetch guard + ESLint). | Phase 0 2026-10-22: the one cookie tried was scope-limited. Replaces the single-cookie FR-08 lookup and the "stop on E-SCOPE" path in `client.ts`. |
+| D-30 | **FR-10 is now built** (D-27 said "only if Phase 0 shows the cookie token is refused for scope" — it does). The service worker registers a read-only `webRequest.onSendHeaders` listener on `www.upwork.com/api/graphql/*` and keeps the bearer token of requests the Upwork page itself makes (initiator `https://www.upwork.com`) in `chrome.storage.session` (memory). It blocks nothing, sends nothing, and the token is never logged (NFR-08). `webRequest` is added to the manifest and NFR-09; no content script and no page injection (unlike the reference extension). | Supersedes D-27's "not built"; NFR-09 vs FR-10. |
 
 ## Confidence table
 
@@ -69,8 +71,8 @@ Each value below is a guess until `docs/phase0-report.md` says otherwise. Update
 
 | Value | Where | Current guess |
 | --- | --- | --- |
-| Token cookie name | `src/upwork/config.ts` `TOKEN_COOKIE_NAME` | `oauth2_global_js_token`. **Probe 2026-10-22: it exists but lacks the scopes for buyer stats, jobs and work history (E-SCOPE).** The job page's own token is needed |
-| Query shape and arguments | `src/upwork/query.ts` | **Confirmed by probe 2026-10-22:** `jobAuthDetails(id: $id)` and all field paths validate |
+| Which login token works | `src/upwork/config.ts` `TOKEN_COOKIE_NAMES` order, `capture.ts` | **Probe 2026-10-22: `oauth2_global_js_token` lacks the scopes for buyer stats, jobs and work history (E-SCOPE).** D-29/D-30: a check now tries the captured page token and the other cookies too. The field-access probe confirms which source reads everything; reorder `TOKEN_COOKIE_NAMES` to put it first |
+| Query shape and arguments | `src/upwork/query.ts` | **Confirmed by probe 2026-10-22:** `jobAuthDetails(id: $id)` and all field paths validate. Request URL now carries `?alias=gql-query-get-auth-job-details-v2` (D-29) |
 | Job ID variable format | `src/upwork/config.ts` `toQueryId` | The ID with its `~`. It is accepted as a variable; the lookup is not yet confirmed |
 | Attachment host and auth | `config.ts` `ALLOWED_HOSTS`, `ATTACHMENTS_NEED_TOKEN`, manifest | `www.upwork.com`, bearer token + cookies |
 | Placeholder company names | `src/extract/lists/placeholders.ts` | common placeholders and shape rules |
@@ -84,7 +86,8 @@ Each value below is a guess until `docs/phase0-report.md` says otherwise. Update
 | Requirements | Code | Tests |
 | --- | --- | --- |
 | FR-01–06 | `src/links/parse.ts`, `CheckView` | `src/links/parse.test.ts` (39 cases), `panel.test.tsx` |
-| FR-07–09, FR-11 | `src/upwork/token.ts`, `client.ts` | `src/upwork/client.test.ts` |
+| FR-07–09, FR-11 | `src/upwork/token.ts`, `client.ts` | `src/upwork/client.test.ts`, `token.test.ts` |
+| FR-10 (D-29, D-30) | `src/upwork/token.ts`, `client.ts`, `capture.ts`, `background/sw.ts` | `client.test.ts`, `token.test.ts`, `capture.test.ts` |
 | FR-12–15 | `src/upwork/*`, `src/runner/runner.ts`, `src/pipeline/check.ts` | `client.test.ts`, `runner.test.ts`, `pipeline.test.ts`, `test/integration.test.ts` |
 | FR-16–21 | `src/extract/*` | `extractors.test.ts`, `s2text.test.ts`, `props/parse.test.ts` |
 | FR-22 | `src/store/peers.ts`, `ResultCard` | `store.test.ts` |
@@ -95,7 +98,7 @@ Each value below is a guess until `docs/phase0-report.md` says otherwise. Update
 | NFR-01, 05, 07, 08 | runner, gate, `hosts.ts`, `log.ts` | `test/integration.test.ts`, `core.test.ts` |
 | NFR-02 | `src/store/local-state.ts`, `App` | `store.test.ts`, integration test |
 | NFR-03, 04 | pipeline, parsers | timing tests in `pipeline.test.ts`, `props/parse.test.ts` |
-| NFR-09 | `manifest.config.ts` | manifest review (see README) |
+| NFR-09 | `manifest.config.ts` (storage, cookies, sidePanel, webRequest; hosts `www.upwork.com` + `*.upwork.com` for cookie reading) | manifest review (see README) |
 | NFR-10, 12, FR-24 | ESLint rules in `eslint.config.js` | `npm run lint`; `panel.test.tsx` renders hostile text |
 | NFR-11 | `src/store/maintenance.ts`, `sw.ts` | `store.test.ts` |
 | NFR-13 | `vitest.config.ts` thresholds | `npm run coverage` |

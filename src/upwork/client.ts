@@ -2,14 +2,18 @@
 // all through the serial gate and only to allowed hosts.
 
 import { AttachError, CheckerError } from '../core/errors';
+import { log } from '../core/log';
 import type { AttachmentRef, JobData } from '../core/types';
 import { expectedKind, MAX_ATTACHMENT_BYTES } from '../extract/props/sniff';
 import { readJobResponse } from './classify';
-import { ATTACHMENTS_NEED_TOKEN, GRAPHQL_URL, REQUEST_TIMEOUT_MS, toQueryId } from './config';
+import { ATTACHMENTS_NEED_TOKEN, GRAPHQL_URL, MAX_TOKEN_ATTEMPTS, REQUEST_TIMEOUT_MS, toQueryId } from './config';
 import { upworkGate, type Gate } from './gate';
 import { isAllowedUrl, resolveAllowedUrl } from './hosts';
 import { JOB_DETAILS_QUERY } from './query';
 import { candidateTokens, chromeTokenSource, type TokenSource } from './token';
+
+/** D-29: codes that mean "this token was refused; try the next candidate". */
+const TOKEN_RETRY_CODES: ReadonlySet<string> = new Set(['E-AUTH', 'E-SCOPE']);
 
 export interface UpworkDeps {
   fetch: typeof fetch;
@@ -59,6 +63,8 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
         response = await guardedFetch(GRAPHQL_URL, {
           method: 'POST',
           credentials: 'include',
+          // NFR-07: refuse redirects so a redirect can never reach a host the fetch guard did not check.
+          redirect: 'error',
           headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${token}` },
           body: JSON.stringify({ query: JOB_DETAILS_QUERY, variables: { id: toQueryId(jobId) } }),
           signal,
@@ -73,23 +79,26 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
 
   return {
     async fetchJob(jobId) {
-      const tokens = await candidateTokens(deps.tokens);
-      if (!tokens.length) throw new CheckerError('E-AUTH');
-      for (let i = 0; i < tokens.length; i += 1) {
-        const token = tokens[i]!;
+      // D-29: try candidates (last working token, captured page token, then cookies) until one is
+      // accepted. A token refused for login (E-AUTH) or scope (E-SCOPE) falls through to the next.
+      const candidates = (await candidateTokens(deps.tokens)).slice(0, MAX_TOKEN_ATTEMPTS);
+      if (!candidates.length) throw new CheckerError('E-AUTH');
+      let lastError: CheckerError = new CheckerError('E-AUTH');
+      for (let i = 0; i < candidates.length; i += 1) {
+        const { token, source } = candidates[i]!;
         try {
           const job = await deps.gate.run(() => requestJob(jobId, token));
           await deps.tokens.setSession(token);
           return job;
         } catch (error) {
-          // FR-09: a stale session token is dropped and the cookie token tried once.
-          const authFailed = error instanceof CheckerError && error.code === 'E-AUTH';
-          if (authFailed && i === 0) await deps.tokens.clearSession();
-          if (authFailed && i < tokens.length - 1) continue;
-          throw error;
+          if (!(error instanceof CheckerError) || !TOKEN_RETRY_CODES.has(error.code)) throw error;
+          lastError = error;
+          // FR-09: drop the remembered session token once it is refused, so it is not tried again.
+          if (source === 'session') await deps.tokens.clearSession();
+          log.warn(`token from ${source} refused (${error.code}); trying the next login source`);
         }
       }
-      throw new CheckerError('E-AUTH');
+      throw lastError;
     },
 
     async downloadAttachment({ fileName, uri, length }) {
@@ -106,6 +115,9 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
           try {
             response = await guardedFetch(url.href, {
               credentials: 'include',
+              // NFR-07: an attachment that redirects (e.g. to a CDN Phase 0 has not confirmed) is not
+              // followed; it fails as E-ATTACH rather than reaching an unchecked host.
+              redirect: 'error',
               headers: token ? { authorization: `Bearer ${token}` } : {},
               signal,
             });

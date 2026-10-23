@@ -32,7 +32,7 @@ let attachments: Record<string, Uint8Array> = {};
 
 async function handler(call: RecordedCall): Promise<Response> {
   await new Promise((r) => setTimeout(r, 50));
-  if (call.url.endsWith('/api/graphql/v1')) {
+  if (call.url.includes('/api/graphql/v1')) {
     const { variables } = JSON.parse(call.body ?? '{}') as { variables: { id: string } };
     const fixture = JOBS[variables.id];
     return jsonResponse(fixture ? jobFixture(fixture) : errorFixture('not-found'));

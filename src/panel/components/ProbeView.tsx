@@ -49,8 +49,9 @@ export function ProbeView() {
     <section class="probe" aria-labelledby="probe-title">
       <h2 id="probe-title">Phase 0 probe</h2>
       <p class="muted">
-        Each run sends up to 8 requests, 3 s apart, with your login. It shows response shapes and error messages, never token values or field contents. Paste the output into
-        docs/phase0-report.md.
+        Each run tries every login token in turn (session, the captured page request, then cookies) against the first job and stops at the first one Upwork accepts, then records the
+        error shapes. Requests are 3 s apart. It shows response shapes, which login source a token came from, and error messages, never token values or field contents. Paste the output
+        into docs/phase0-report.md.
       </p>
       <label for="probe-links">Up to 3 job links</label>
       <textarea id="probe-links" rows={3} value={links} onInput={(e) => setLinks(e.currentTarget.value)} />

@@ -15,7 +15,12 @@ interface Props {
   onResume: () => void;
   onDiscard: () => void;
   onOpenRow: (row: BatchRow) => void;
+  /** Opens the next unchecked job on Upwork, to refresh the login / capture its token (D-29, D-30). */
+  onOpenUpwork?: () => void;
 }
+
+/** Stops where opening a job page on Upwork can fix the login (refresh the token, or clear a check). */
+const OPEN_ON_UPWORK_CODES = new Set(['E-AUTH', 'E-SCOPE', 'E-BLOCKED']);
 
 function Progress({ state }: { state: RunnerState }) {
   const position = Math.min(state.completed + (state.phase === 'running' ? 1 : 0), state.total);
@@ -39,7 +44,7 @@ function Progress({ state }: { state: RunnerState }) {
 }
 
 /** FR-01, FR-02, FR-13, FR-30: link input, Check, Stop, progress and the batch table. */
-export function CheckView({ state, running, resumable, parseNote, onCheck, onStop, onResume, onDiscard, onOpenRow }: Props) {
+export function CheckView({ state, running, resumable, parseNote, onCheck, onStop, onResume, onDiscard, onOpenRow, onOpenUpwork }: Props) {
   const [text, setText] = useState('');
   const submit = () => {
     if (!running && text.trim()) onCheck(text);
@@ -59,6 +64,11 @@ export function CheckView({ state, running, resumable, parseNote, onCheck, onSto
             <button type="button" onClick={onDiscard}>
               Discard
             </button>
+            {onOpenUpwork && state.stopReason && OPEN_ON_UPWORK_CODES.has(state.stopReason.code) && (
+              <button type="button" onClick={onOpenUpwork}>
+                Open a job on Upwork
+              </button>
+            )}
           </div>
         </div>
       )}
