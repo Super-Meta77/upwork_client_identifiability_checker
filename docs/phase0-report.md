@@ -60,6 +60,15 @@ Trade-off: Upwork access tokens expire (hours), so the paste is per browser sess
 5. **HAR + `phase0:analyze`** to learn whether the scoped token is cookie-backed (`cookieNamesForToken`). If it is, reorder `TOKEN_COOKIE_NAMES` and the paste becomes unnecessary.
 6. Export ~30 jobs for fixtures, then `phase0:anonymise` and `phase0:leak-check`.
 
+## Live check — 2026-10-24 (gate PASSED)
+
+With a token pasted from a logged-in `jobAuthDetails` request (D-30), a 2-job batch ran end to end against live Upwork and both finished `Done`, no errors:
+
+- "Focused audit + fixes — React Native / Expo Pokémon TCG app" → **Partially identified**, best evidence "Bindex" (Medium), S3 10.
+- "Influencer Outreach VA for Fitness App (uFit AI)" → **Not identifiable before contact**, best evidence "Lucas" (Low), S3 10.
+
+This exercises the whole pipeline on real data: token accepted → `jobAuthDetails` returned → schema validation + mapping → extractors (S1/S2/S5 produced names) → verdict engine → S3 → batch orchestration → results table. No E-FORMAT, E-SCOPE or E-BLOCKED.
+
 ## Gate
 
-The query and field paths are valid, but no automatically available token has the scopes, and Cloudflare intermittently challenges requests. The gate **passes once a pasted token reads the buyer fields** (step 1); until then it is held open.
+**PASSED (2026-10-24).** The query and field paths are valid and a scoped token reads the buyer fields; the extension produces correct-shaped verdicts and evidence from live responses. Remaining, non-blocking: (1) the scoped token is pasted and expires, so it is per browser session — a HAR + `phase0:analyze` would show whether it is cookie-backed and could be read automatically; (2) S3 distinctiveness needs calibration against real data (D-22; both jobs scored 10 vs the default threshold 70); (3) the real not-found shape and attachment host are still unconfirmed; (4) ~30 anonymised fixtures still to export.
