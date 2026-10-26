@@ -104,7 +104,7 @@ export function CheckView({ state, running, resumable, parseNote, onCheck, onSto
       <Progress state={state} />
       {state.savingDisabled && (
         <p class="notice error" role="alert">
-          Could not save results. Export them, then delete old results.
+          Could not save results, even in this browser. They are shown here but are lost when the panel closes.
         </p>
       )}
       {state.rows.length > 0 && <BatchTable rows={state.rows} onOpen={onOpenRow} />}

@@ -46,7 +46,8 @@ export interface RunnerState {
 }
 
 export interface RunnerDeps {
-  check(item: QueueItem): Promise<Result>;
+  /** `signal` is aborted by Stop: the check then starts no new request (FR-13). */
+  check(item: QueueItem, signal: AbortSignal): Promise<Result>;
   save(result: Result): Promise<void>;
   errorResult(item: QueueItem, code: ErrorCode, message: string): Result;
   saveQueue(queue: SavedQueue): Promise<void>;
@@ -175,11 +176,13 @@ export class BatchRunner {
     for (;;) {
       let error: CheckerError;
       try {
-        const result = await this.deps.check(item);
+        const result = await this.deps.check(item, signal);
         this.serverErrorsInARow = 0;
         this.backoffStep = 0;
         return { kind: 'result', result };
       } catch (e) {
+        // Stop during a job: it ends without another request and stays queued for Resume.
+        if (signal.aborted) return { kind: 'aborted' };
         error = e instanceof CheckerError ? e : new CheckerError('E-NETWORK', 'unexpected');
       }
 

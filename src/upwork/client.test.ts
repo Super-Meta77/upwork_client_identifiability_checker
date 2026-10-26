@@ -203,6 +203,19 @@ describe('token handling (FR-07–FR-09, FR-11)', () => {
     expect(state.manual).toBeNull();
   });
 
+  it('tries no further token after Stop (FR-13)', async () => {
+    const stop = new AbortController();
+    const { client, guarded } = setup(
+      () => {
+        stop.abort();
+        return jsonResponse(errorFixture('permission'));
+      },
+      { cookies: [{ token: 'a', source: 'cookie a' }, { token: 'b', source: 'cookie b' }] },
+    );
+    await expect(client.fetchJob(JOB_ID, stop.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(guarded.calls).toHaveLength(1);
+  });
+
   it('tries at most MAX_TOKEN_ATTEMPTS tokens before giving up (D-29)', async () => {
     const cookies: TokenCandidate[] = Array.from({ length: MAX_TOKEN_ATTEMPTS + 4 }, (_, i) => ({ token: `t${i}`, source: `cookie c${i}` }));
     const { client, guarded } = setup(() => jsonResponse(errorFixture('permission')), { cookies });

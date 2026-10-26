@@ -89,7 +89,8 @@ export interface Evidence {
   confidence: Confidence;
   reasonId: ReasonId;
   mentions: number;
-  ruleId: RuleId;
+  /** Set when the check runs; not stored in the history (D-32). */
+  ruleId?: RuleId;
   /** Confidence before the agreement rule raised it. */
   baseConfidence: Confidence;
   /** Ids of evidence from other sources whose value agrees with this one. */

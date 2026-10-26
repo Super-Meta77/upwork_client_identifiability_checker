@@ -25,7 +25,8 @@ export interface UpworkDeps {
 }
 
 export interface UpworkClient {
-  fetchJob(jobId: string): Promise<JobData>;
+  /** `signal`: after Stop, no further login source is tried (FR-13). */
+  fetchJob(jobId: string, signal?: AbortSignal): Promise<JobData>;
   downloadAttachment(attachment: AttachmentRef): Promise<Uint8Array>;
 }
 
@@ -78,13 +79,14 @@ export function createUpworkClient(deps: UpworkDeps): UpworkClient {
   }
 
   return {
-    async fetchJob(jobId) {
+    async fetchJob(jobId, signal) {
       // D-29/D-30: try candidates (the manually entered token, last working token, then cookies)
       // until one is accepted. A token refused for login (E-AUTH) or scope (E-SCOPE) falls through.
       const candidates = (await candidateTokens(deps.tokens)).slice(0, MAX_TOKEN_ATTEMPTS);
       if (!candidates.length) throw new CheckerError('E-AUTH');
       let lastError: CheckerError = new CheckerError('E-AUTH');
       for (let i = 0; i < candidates.length; i += 1) {
+        signal?.throwIfAborted();
         const { token, source } = candidates[i]!;
         try {
           const job = await deps.gate.run(() => requestJob(jobId, token));

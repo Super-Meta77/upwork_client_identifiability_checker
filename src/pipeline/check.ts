@@ -21,9 +21,12 @@ function note(fileName: string, reason: string): AttachmentNote {
   return { fileName, code: 'E-ATTACH', message: `${errorMessage('E-ATTACH', fileName)} Reason: ${reason}.` };
 }
 
-/** Throws CheckerError for job-level failures; attachment failures become notes on the card. */
-export async function checkJob(link: { jobId: string; url: string }, settings: CheckSettings, deps: CheckDeps): Promise<Result> {
-  const job = await deps.upwork.fetchJob(link.jobId);
+/**
+ * Throws CheckerError for job-level failures; attachment failures become notes on the card.
+ * After Stop (`signal`), no new request starts and the check throws an AbortError (FR-13).
+ */
+export async function checkJob(link: { jobId: string; url: string }, settings: CheckSettings, deps: CheckDeps, signal?: AbortSignal): Promise<Result> {
+  const job = await deps.upwork.fetchJob(link.jobId, signal);
   const props: AttachmentProps[] = [];
   const notes: AttachmentNote[] = [];
 
@@ -35,6 +38,7 @@ export async function checkJob(link: { jobId: string; url: string }, settings: C
     supported.slice(MAX_ATTACHMENTS_PER_JOB).forEach((a) => notes.push(note(a.fileName, `only the first ${MAX_ATTACHMENTS_PER_JOB} files of a job are analysed`)));
 
     for (const attachment of supported.slice(0, MAX_ATTACHMENTS_PER_JOB)) {
+      signal?.throwIfAborted();
       try {
         const bytes = await deps.upwork.downloadAttachment(attachment);
         props.push(await deps.parseAttachment(attachment.fileName, bytes));

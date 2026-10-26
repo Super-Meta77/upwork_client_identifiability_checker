@@ -1,5 +1,5 @@
 // Lint rules that enforce parts of the spec in code review:
-//   NFR-07 / NFR-12  fetch and chrome.cookies only inside src/upwork
+//   NFR-07 / NFR-12  fetch and chrome.cookies only inside src/upwork (plus src/store/supabase.ts, D-32)
 //   FR-24            confidence is only set inside src/verdict
 //   NFR-10           no innerHTML / dangerouslySetInnerHTML anywhere
 //   NFR-08           no console output except through src/core/log.ts (which redacts)
@@ -46,6 +46,16 @@ export default tseslint.config(
       'no-restricted-globals': 'off',
       'no-restricted-properties': ['error', ...htmlProperties],
     },
+  },
+  {
+    // D-32: the only fetch outside src/upwork, to the user's own Supabase project.
+    files: ['src/store/supabase.ts'],
+    rules: { 'no-restricted-globals': 'off' },
+  },
+  {
+    // D-32: copies the stored confidence to and from the database; it never decides one (FR-24).
+    files: ['src/store/checks.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...htmlInjection] },
   },
   {
     files: ['src/verdict/**/*.ts'],

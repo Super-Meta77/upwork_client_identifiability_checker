@@ -38,12 +38,11 @@ export function EvidenceItem({ e }: { e: Evidence }) {
         </dd>
         <dt>Why</dt>
         <dd>{REASON_TEXT[e.reasonId]}</dd>
-        {e.agreesWith.length > 0 && e.confidence !== e.baseConfidence && (
+        {e.confidence !== e.baseConfidence && (
           <>
             <dt>Agreement</dt>
             <dd>
-              Matches {e.agreesWith.length} finding{e.agreesWith.length > 1 ? 's' : ''} from another source, so confidence was raised from{' '}
-              {CONFIDENCE_LABEL[e.baseConfidence]} to {CONFIDENCE_LABEL[e.confidence]}.
+              Matches a finding from another source, so confidence was raised from {CONFIDENCE_LABEL[e.baseConfidence]} to {CONFIDENCE_LABEL[e.confidence]}.
             </dd>
           </>
         )}

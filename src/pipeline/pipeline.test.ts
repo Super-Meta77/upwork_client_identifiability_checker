@@ -134,6 +134,22 @@ describe('checkJob attachments (FR-15)', () => {
     expect(r.attachmentNotes).toEqual([]);
   });
 
+  it('starts no further download after Stop (FR-13)', async () => {
+    const downloads: string[] = [];
+    const stop = new AbortController();
+    const stopping: UpworkClient = {
+      ...client(downloads),
+      downloadAttachment: async (a) => {
+        downloads.push(a.fileName);
+        stop.abort();
+        return new Uint8Array([1]);
+      },
+    };
+    const check = checkJob({ jobId: JOB_ID, url: URL }, DEFAULT_SETTINGS, { upwork: stopping, parseAttachment: parse, now: () => NOW, newId: sequentialIds() }, stop.signal);
+    await expect(check).rejects.toMatchObject({ name: 'AbortError' });
+    expect(downloads).toHaveLength(1);
+  });
+
   it('passes job-level errors through', async () => {
     const failing: UpworkClient = { fetchJob: async () => Promise.reject(new CheckerError('E-AUTH')), downloadAttachment: async () => new Uint8Array() };
     await expect(checkJob({ jobId: JOB_ID, url: URL }, DEFAULT_SETTINGS, { upwork: failing, parseAttachment: parse, now: () => NOW, newId: sequentialIds() })).rejects.toMatchObject({ code: 'E-AUTH' });

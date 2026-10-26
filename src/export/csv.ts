@@ -16,7 +16,6 @@ export const CSV_COLUMNS = [
   's3_score',
   's3_attributes',
   'evidence_count',
-  'error_code',
   'ground_truth_name',
 ] as const;
 
@@ -45,7 +44,6 @@ function row(r: Result): (string | number | null)[] {
     r.distinctiveness?.score ?? null,
     r.distinctiveness?.attributes.join(';') ?? null,
     r.evidence.length,
-    r.error?.code ?? null,
     gt?.companyName || gt?.personName || null,
   ];
 }

@@ -10,8 +10,6 @@ export const settingsSchema = z.object({
   delaySeconds: z.number().int().min(3).max(30).default(3),
   /** FR-34: attachment analysis, on by default. */
   attachmentsEnabled: z.boolean().default(true),
-  /** FR-34: days before results are deleted automatically. */
-  retentionDays: z.number().int().min(1).max(365).default(30),
   /** NFR-02: warn before a batch would take the day's total past this. */
   dailyLimit: z.number().int().min(1).max(1000).default(200),
   /** FR-21 / D-22: S3 points per attribute and the Narrowable threshold. */
@@ -32,6 +30,8 @@ export const settingsSchema = z.object({
   /** FR-17: user additions to the generic-site and legal-ending lists. */
   extraGenericSites: z.array(z.string().max(253)).max(500).default([]),
   extraLegalEndings: z.array(z.string().max(40)).max(200).default([]),
+  /** D-31: seconds between search refreshes while auto-refresh is on, 30 to 3600. */
+  watchIntervalSeconds: z.number().int().min(30).max(3600).default(60),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;

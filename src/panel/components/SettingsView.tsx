@@ -12,7 +12,7 @@ interface Props {
 
 const lines = (text: string) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
-/** FR-34: delay, attachments, retention, daily limit, S3 calibration, list additions, delete all. */
+/** FR-34: delay, attachments, daily limit, watching, S3 calibration, list additions, delete all. */
 export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
   const [draft, setDraft] = useState(settings);
   const [sites, setSites] = useState(settings.extraGenericSites.join('\n'));
@@ -55,7 +55,7 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
     refreshLoginSource();
   };
 
-  const num = (key: 'delaySeconds' | 'retentionDays' | 'dailyLimit' | 's3Threshold') => (e: Event) =>
+  const num = (key: 'delaySeconds' | 'dailyLimit' | 's3Threshold' | 'watchIntervalSeconds') => (e: Event) =>
     setDraft((d) => ({ ...d, [key]: Number((e.currentTarget as HTMLInputElement).value) }));
 
   const point = (key: S3Attribute) => (e: Event) =>
@@ -118,11 +118,15 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
         Analyse attachment properties (downloads up to 5 files per job, 10 MB each)
       </label>
 
-      <label for="retention">Delete results automatically after (days)</label>
-      <input id="retention" type="number" min={1} max={365} required value={draft.retentionDays} onInput={num('retentionDays')} />
-
       <label for="daily">Warn when a batch would take today's total past (jobs)</label>
       <input id="daily" type="number" min={1} max={1000} required value={draft.dailyLimit} onInput={num('dailyLimit')} />
+
+      <fieldset>
+        <legend>Watching the job search page</legend>
+        <label for="watch-interval">Auto-refresh: seconds between refreshes (30 to 3600)</label>
+        <input id="watch-interval" type="number" min={30} max={3600} required value={draft.watchIntervalSeconds} onInput={num('watchIntervalSeconds')} />
+        <p class="muted small">Watching stops by itself when today's total reaches the limit above.</p>
+      </fieldset>
 
       <details>
         <summary>Advanced: S3 score and word lists</summary>
@@ -156,7 +160,9 @@ export function SettingsView({ settings, onSave, onDeleteAll }: Props) {
 
       <hr />
       <h2>Delete data</h2>
-      <p class="muted">Removes every saved result, the unfinished batch, the daily count and your settings. The extension then starts fresh.</p>
+      <p class="muted">
+        Removes every saved result from the database, and the unfinished batch, the daily count and your settings from this browser. You stay signed in.
+      </p>
       <button type="button" class="danger" onClick={onDeleteAll}>
         Delete all data
       </button>

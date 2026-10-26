@@ -1,11 +1,13 @@
-// Full stack, offline: link parser -> runner -> Upwork client -> attachments -> analysis -> IndexedDB
-// -> exports, with only fetch and chrome.* faked. Covers NFR-01, NFR-05, NFR-07 and NFR-08.
+// Full stack, offline: link parser -> runner -> Upwork client -> attachments -> analysis -> saved
+// history rows -> exports, with only fetch, chrome.* and the database faked. Covers NFR-01, NFR-05,
+// NFR-07 and NFR-08.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createChecker } from '../src/app/compose';
 import { parseLinks } from '../src/links/parse';
 import { BatchRunner } from '../src/runner/runner';
-import { listResults } from '../src/store/db';
+import type { Result } from '../src/core/types';
+import { toRow } from '../src/store/checks';
 import { getDayCount, loadQueue } from '../src/store/local-state';
 import { DEFAULT_SETTINGS } from '../src/store/settings';
 import { toCsv } from '../src/export/csv';
@@ -72,14 +74,15 @@ describe('full batch, offline', () => {
     }
 
     const guarded = createGuardedFetch(handler);
-    const checker = createChecker(DEFAULT_SETTINGS, { fetch: guarded.fetch });
+    const results: Result[] = [];
+    const checker = createChecker(DEFAULT_SETTINGS, { fetch: guarded.fetch, save: async (r) => void results.push(r) });
     const savedCounts: number[] = [];
     const deps = checker.runnerDeps(() => {});
     const runner = new BatchRunner({
       ...deps,
       save: async (r) => {
         await deps.save(r);
-        savedCounts.push((await listResults()).length);
+        savedCounts.push(results.length);
       },
     });
 
@@ -103,7 +106,6 @@ describe('full batch, offline', () => {
     expect(await getDayCount(new Date())).toBe(7);
     expect(await loadQueue()).toBeNull();
 
-    const results = await listResults();
     const byId = Object.fromEntries(results.map((r) => [r.jobId, r]));
     expect(byId['~0100000000000000001']?.verdict).toBe('identified');
     expect(byId['~0100000000000000007']?.verdict).toBe('narrowable');
@@ -117,6 +119,7 @@ describe('full batch, offline', () => {
     const chrome = fakeChrome();
     const everywhereElse = [
       JSON.stringify(results),
+      JSON.stringify(results.map((r) => toRow(r, true))),
       JSON.stringify(chrome.storage.local.dump()),
       toCsv(results),
       toJson(results, new Date()),
@@ -130,7 +133,7 @@ describe('full batch, offline', () => {
   it('stops at E-AUTH without trying the remaining links', async () => {
     fakeChrome()._cookies.clear();
     const guarded = createGuardedFetch(handler);
-    const runner = new BatchRunner(createChecker(DEFAULT_SETTINGS, { fetch: guarded.fetch }).runnerDeps(() => {}));
+    const runner = new BatchRunner(createChecker(DEFAULT_SETTINGS, { fetch: guarded.fetch, save: async () => {} }).runnerDeps(() => {}));
     const items = Object.keys(JOBS).map((jobId) => ({ jobId, url: `https://www.upwork.com/jobs/${jobId}` }));
     const final = await drive(runner.run({ id: 'b2', createdAt: '', items, nextIndex: 0 }));
     expect(final).toMatchObject({ phase: 'stopped', stopReason: { code: 'E-AUTH' } });

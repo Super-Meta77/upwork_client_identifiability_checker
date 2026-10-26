@@ -20,7 +20,7 @@ export function errorMessage(code: ErrorCode, detail?: string): string {
     case 'E-NETWORK':
       return 'No connection to Upwork.';
     case 'E-STORAGE':
-      return 'Could not save results. Export them, then delete old results.';
+      return `Could not use the results database${detail ? ` (${detail})` : ''}. Check the connection and that you are signed in (Settings).`;
     case 'E-BLOCKED':
       return 'Upwork showed a check page. Open upwork.com in a tab, complete it, then press Retry.';
   }

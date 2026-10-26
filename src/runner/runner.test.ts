@@ -96,6 +96,24 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     expect(runner.isActive()).toBe(false);
   });
 
+  it('Stop during a job keeps that job queued and saves nothing for it (FR-13)', async () => {
+    let stop = () => {};
+    const { runner, saved, queues } = setup(async (it) => {
+      if (it.jobId === item(1).jobId) {
+        stop();
+        throw new DOMException('stopped', 'AbortError');
+      }
+      return okResult(it);
+    });
+    stop = () => runner.stop();
+    const final = await runToEnd(runner, queueOf(3));
+    expect(final.phase).toBe('stopped');
+    expect(final.stopReason).toBeNull();
+    expect(saved).toHaveLength(1);
+    expect(final.rows.map((r) => r.status)).toEqual(['done', 'queued', 'queued']);
+    expect(queues.at(-1)?.nextIndex).toBe(1);
+  });
+
   it.each<ErrorCode>(['E-AUTH', 'E-SCOPE', 'E-FORMAT', 'E-BLOCKED'])('%s stops the batch and does not retry other links (FR-11)', async (code) => {
     const { runner, callTimes, queues, saved } = setup((it) => {
       if (it.jobId === item(1).jobId) throw new CheckerError(code, 'x');

@@ -1,22 +1,40 @@
-import { useMemo, useState } from 'preact/hooks';
-import type { Result } from '../../core/types';
-import { searchResults } from '../../store/db';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import type { CheckSummary } from '../../store/checks';
 import { formatDateTime, VERDICT_LABEL } from '../labels';
 
 interface Props {
-  saved: readonly Result[];
-  onOpen: (r: Result) => void;
-  onDelete: (r: Result) => void;
-  onExport: (results: Result[], kind: 'csv' | 'json') => void;
+  rows: readonly CheckSummary[];
+  /** More rows exist after the loaded ones. */
+  more: boolean;
+  loading: boolean;
+  onSearch: (query: string) => void;
+  onMore: () => void;
+  onOpen: (jobId: string) => void;
+  onDelete: (row: CheckSummary) => void;
+  onExport: (jobIds: string[] | 'all', kind: 'csv' | 'json') => void;
 }
 
-/** FR-32, FR-33: history newest first, search, delete one, export selected or all. */
-export function HistoryView({ saved, onOpen, onDelete, onExport }: Props) {
+/** Waits this long after the last keystroke before searching the database. */
+export const SEARCH_DELAY_MS = 300;
+
+/** FR-32, FR-33: history newest first, loaded page by page; search, delete one, export selected or all. */
+export function HistoryView({ rows, more, loading, onSearch, onMore, onOpen, onDelete, onExport }: Props) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const shown = useMemo(() => searchResults(saved, query), [saved, query]);
-  const chosen = saved.filter((r) => selected.has(r.jobId));
-  const allShownSelected = shown.length > 0 && shown.every((r) => selected.has(r.jobId));
+  const first = useRef(true);
+
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const timer = setTimeout(() => onSearch(query), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const chosen = rows.filter((r) => selected.has(r.jobId)).map((r) => r.jobId);
+  const allShownSelected = rows.length > 0 && rows.every((r) => selected.has(r.jobId));
+  const target = chosen.length ? `${chosen.length} selected` : query.trim() ? 'all (not only the search)' : 'all';
 
   const toggle = (jobId: string) =>
     setSelected((s) => {
@@ -31,18 +49,17 @@ export function HistoryView({ saved, onOpen, onDelete, onExport }: Props) {
       <label for="history-search">Search by job ID, title or verdict</label>
       <input id="history-search" type="search" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
       <div class="row wrap">
-        <button type="button" onClick={() => onExport(chosen.length ? chosen : [...saved], 'csv')} disabled={!saved.length}>
-          Export {chosen.length ? `${chosen.length} selected` : 'all'} as CSV
+        <button type="button" onClick={() => onExport(chosen.length ? chosen : 'all', 'csv')} disabled={!rows.length}>
+          Export {target} as CSV
         </button>
-        <button type="button" onClick={() => onExport(chosen.length ? chosen : [...saved], 'json')} disabled={!saved.length}>
-          Export {chosen.length ? `${chosen.length} selected` : 'all'} as JSON
+        <button type="button" onClick={() => onExport(chosen.length ? chosen : 'all', 'json')} disabled={!rows.length}>
+          Export {target} as JSON
         </button>
       </div>
-      <p class="muted small">
-        {saved.length} saved result{saved.length === 1 ? '' : 's'}
-        {query && `, ${shown.length} shown`}.
+      <p class="muted small" role="status">
+        {loading ? 'Loading…' : `${rows.length} result${rows.length === 1 ? '' : 's'} shown${more ? ', more below' : ''}.`}
       </p>
-      {shown.length > 0 && (
+      {rows.length > 0 && (
         <div class="table-wrap">
           <table class="history">
             <thead>
@@ -52,11 +69,12 @@ export function HistoryView({ saved, onOpen, onDelete, onExport }: Props) {
                     type="checkbox"
                     aria-label="Select all shown results"
                     checked={allShownSelected}
-                    onChange={() => setSelected(allShownSelected ? new Set() : new Set(shown.map((r) => r.jobId)))}
+                    onChange={() => setSelected(allShownSelected ? new Set() : new Set(rows.map((r) => r.jobId)))}
                   />
                 </th>
                 <th scope="col">Job</th>
                 <th scope="col">Verdict</th>
+                <th scope="col">Best evidence</th>
                 <th scope="col">Checked</th>
                 <th scope="col">
                   <span class="visually-hidden">Actions</span>
@@ -64,21 +82,22 @@ export function HistoryView({ saved, onOpen, onDelete, onExport }: Props) {
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
+              {rows.map((r) => (
                 <tr key={r.jobId}>
                   <td>
-                    <input type="checkbox" aria-label={`Select ${r.jobTitle ?? r.jobId}`} checked={selected.has(r.jobId)} onChange={() => toggle(r.jobId)} />
+                    <input type="checkbox" aria-label={`Select ${r.jobTitle || r.jobId}`} checked={selected.has(r.jobId)} onChange={() => toggle(r.jobId)} />
                   </td>
                   <td>
-                    <button type="button" class="link" onClick={() => onOpen(r)}>
-                      {r.jobTitle ?? r.jobId}
+                    <button type="button" class="link" onClick={() => onOpen(r.jobId)}>
+                      {r.jobTitle || r.jobId}
                     </button>
                     <div class="muted small">{r.jobId}</div>
                   </td>
                   <td>{VERDICT_LABEL[r.verdict]}</td>
+                  <td class="break">{r.bestValue ?? ''}</td>
                   <td class="small">{formatDateTime(r.checkedAt)}</td>
                   <td>
-                    <button type="button" class="danger small" onClick={() => onDelete(r)} aria-label={`Delete ${r.jobTitle ?? r.jobId}`}>
+                    <button type="button" class="danger small" onClick={() => onDelete(r)} aria-label={`Delete ${r.jobTitle || r.jobId}`}>
                       Delete
                     </button>
                   </td>
@@ -87,6 +106,11 @@ export function HistoryView({ saved, onOpen, onDelete, onExport }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+      {more && (
+        <button type="button" onClick={onMore} disabled={loading}>
+          Show more
+        </button>
       )}
     </div>
   );

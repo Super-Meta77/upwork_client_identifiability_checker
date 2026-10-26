@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Result } from '../core/types';
 import { errorResult } from '../pipeline/analyse';
+import { toRow, type CheckRow } from '../store/checks';
 import { evidence } from '../../test/builders';
 import { CSV_COLUMNS, escapeCell, toCsv } from './csv';
 import { EXPORT_WARNING, exportFileName, toJson } from './json';
@@ -14,7 +15,7 @@ describe('CSV export (FR-33)', () => {
   it('uses the spec columns in order', () => {
     const [header] = toCsv([]).replace('﻿', '').split('\r\n');
     expect(header).toBe(CSV_COLUMNS.join(','));
-    expect(CSV_COLUMNS).toEqual(['job_id', 'url', 'checked_at', 'job_title', 'verdict', 'best_value', 'best_kind', 'best_source', 'best_confidence', 's3_score', 's3_attributes', 'evidence_count', 'error_code', 'ground_truth_name']);
+    expect(CSV_COLUMNS).toEqual(['job_id', 'url', 'checked_at', 'job_title', 'verdict', 'best_value', 'best_kind', 'best_source', 'best_confidence', 's3_score', 's3_attributes', 'evidence_count', 'ground_truth_name']);
   });
 
   it('writes the best evidence, S3 and ground truth', () => {
@@ -31,11 +32,7 @@ describe('CSV export (FR-33)', () => {
       }),
     ]);
     const line = csv.split('\r\n')[1];
-    expect(line).toBe('~01abc,https://www.upwork.com/jobs/~01abc,2026-10-21T09:30:00.000Z,"Logo ""v2""",identified,"Acme, Ltd",company_name,S1,high,40,city;industry,2,,Jo Bloggs');
-  });
-
-  it('writes error rows', () => {
-    expect(toCsv([base()]).split('\r\n')[1]).toBe('~01abc,https://www.upwork.com/jobs/~01abc,2026-10-21T09:30:00.000Z,,error,,,,,,,0,E-NOTFOUND,');
+    expect(line).toBe('~01abc,https://www.upwork.com/jobs/~01abc,2026-10-21T09:30:00.000Z,"Logo ""v2""",identified,"Acme, Ltd",company_name,S1,high,40,city;industry,2,Jo Bloggs');
   });
 
   it.each([
@@ -64,10 +61,11 @@ describe('CSV export (FR-33)', () => {
 });
 
 describe('JSON export (FR-33)', () => {
-  it('includes the results and the personal-data warning', () => {
-    const parsed = JSON.parse(toJson([base()], new Date('2026-10-21T10:00:00Z'))) as { warning: string; count: number; results: Result[] };
-    expect(parsed).toMatchObject({ warning: EXPORT_WARNING, count: 1 });
-    expect(parsed.results[0]?.jobId).toBe('~01abc');
+  it('writes the checks as stored in the database, with the personal-data warning (D-32)', () => {
+    const checked = base({ verdict: 'partial', error: null, jobTitle: 'Logo', distinctiveness: { score: 10, attributes: [], details: [] }, groundTruth: { companyName: 'Acme', matchedEvidenceIds: [] } });
+    const parsed = JSON.parse(toJson([checked, base()], new Date('2026-10-21T10:00:00Z'))) as { format: string; warning: string; count: number; checks: CheckRow[] };
+    expect(parsed).toMatchObject({ format: 'upwork-client-checker/2', warning: EXPORT_WARNING, count: 1 });
+    expect(parsed.checks).toEqual([toRow(checked, true)]);
   });
 
   it('names files with a timestamp', () => {

@@ -6,7 +6,7 @@ import { parseAttachment } from '../extract/props/parse';
 import { errorResult } from '../pipeline/analyse';
 import { checkJob } from '../pipeline/check';
 import { sleep, type RunnerDeps, type RunnerState } from '../runner/runner';
-import { saveResult } from '../store/db';
+import { checksStore } from '../store/checks';
 import { clearQueue, incrementDayCount, saveQueue, type QueueItem } from '../store/local-state';
 import type { Settings } from '../store/settings';
 import { chromeUpworkDeps, createUpworkClient, type UpworkClient } from '../upwork';
@@ -15,11 +15,13 @@ export interface ComposeOptions {
   fetch?: typeof fetch;
   now?: () => Date;
   newId?: () => string;
+  /** Where results go; the Supabase history by default (D-32). */
+  save?: (result: Result) => Promise<void>;
 }
 
 export interface Checker {
   upwork: UpworkClient;
-  check(item: QueueItem): Promise<Result>;
+  check(item: QueueItem, signal?: AbortSignal): Promise<Result>;
   runnerDeps(onChange: (state: RunnerState) => void): RunnerDeps;
 }
 
@@ -34,13 +36,13 @@ export function createChecker(settings: Settings, options: ComposeOptions = {}):
       },
     }),
   );
-  const check = (item: QueueItem) => checkJob(item, settings, { upwork, parseAttachment, now, newId });
+  const check = (item: QueueItem, signal?: AbortSignal) => checkJob(item, settings, { upwork, parseAttachment, now, newId }, signal);
   return {
     upwork,
     check,
     runnerDeps: (onChange) => ({
       check,
-      save: saveResult,
+      save: options.save ?? ((result) => checksStore().save(result)),
       errorResult: (item: QueueItem, code: ErrorCode, message: string) => errorResult(item.jobId, item.url, code, message, now()),
       saveQueue,
       clearQueue,

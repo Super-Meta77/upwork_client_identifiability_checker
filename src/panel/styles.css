@@ -241,6 +241,17 @@ button.small,
   margin: 10px 0;
 }
 
+/* D-31: the watch controls sit above the link box, set apart by a rule. */
+.watch {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  padding-bottom: 4px;
+}
+
+.watch h2 {
+  margin-top: 0;
+}
+
 .progress p {
   margin: 2px 0;
 }

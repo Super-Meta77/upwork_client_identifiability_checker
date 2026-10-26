@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import type { GroundTruth, Result } from '../../core/types';
 import { withMatches } from '../../eval/match';
-import { peerCounts, PEER_FIELDS, type PeerField } from '../../store/peers';
+import { PEER_FIELDS, type PeerCounts, type PeerField } from '../../store/peers';
 import { REASON_TEXT } from '../../verdict';
 import { formatDateTime, S3_LABEL, SOURCE_LABEL, SOURCE_ORDER, VERDICT_LABEL } from '../labels';
 import { EvidenceItem } from './EvidenceItem';
@@ -18,9 +18,8 @@ export function VerdictBadge({ verdict }: { verdict: Result['verdict'] }) {
   return <span class={`badge verdict-${verdict}`}>{VERDICT_LABEL[verdict]}</span>;
 }
 
-function S3Panel({ result, saved }: { result: Result; saved: readonly Result[] }) {
+function S3Panel({ result, peers }: { result: Result; peers: PeerCounts | null }) {
   const s3 = result.distinctiveness;
-  const peers = useMemo(() => peerCounts(result, saved), [result, saved]);
   if (!s3) return null;
   return (
     <section class="s3" aria-labelledby={`s3-${result.jobId}`}>
@@ -39,7 +38,7 @@ function S3Panel({ result, saved }: { result: Result; saved: readonly Result[] }
       ) : (
         <p class="muted">No trust details were shown for this client.</p>
       )}
-      {result.profile && (
+      {result.profile && peers && (
         <p class="muted">
           In your saved results:{' '}
           {PEER_FIELDS.filter((f) => peers[f] !== null)
@@ -87,13 +86,14 @@ function GroundTruthEditor({ result, onSave }: { result: Result; onSave: (gt: Gr
 
 interface Props {
   result: Result;
-  saved: readonly Result[];
+  /** FR-22 counts from the history; null while loading or when unavailable. */
+  peers: PeerCounts | null;
   onClose?: () => void;
   onGroundTruth?: (gt: GroundTruth | null) => void;
 }
 
 /** FR-28: verdict, title, link, evidence by source with confidence, S3 score, checked time. */
-export function ResultCard({ result, saved, onClose, onGroundTruth }: Props) {
+export function ResultCard({ result, peers, onClose, onGroundTruth }: Props) {
   const strong = result.evidence.filter((e) => e.confidence !== 'low' && e.source !== 'S3');
   const weak = result.evidence.filter((e) => e.confidence === 'low' && e.source !== 'S3');
   const best = result.evidence.find((e) => e.id === result.bestEvidenceId);
@@ -159,7 +159,7 @@ export function ResultCard({ result, saved, onClose, onGroundTruth }: Props) {
         </details>
       )}
 
-      <S3Panel result={result} saved={saved} />
+      <S3Panel result={result} peers={peers} />
 
       {result.attachmentNotes.length > 0 && (
         <section>
