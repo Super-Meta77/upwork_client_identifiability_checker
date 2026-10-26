@@ -2,7 +2,7 @@
 // selector (page-scan.ts) are taken from the live search page; update them if Upwork changes them.
 
 import { jobUrl, parseJobId } from '../links/parse';
-import type { QueueItem } from '../store/local-state';
+import type { QueueItem } from '../runner/runner';
 
 /** chrome.tabs.query pattern for open search tabs. */
 export const SEARCH_PAGE_PATTERN = 'https://www.upwork.com/nx/search/jobs*';

@@ -1,26 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CheckerError } from '../core/errors';
 import type { ErrorCode, Result } from '../core/types';
-import { parseLinks } from '../links/parse';
 import { errorResult } from '../pipeline/analyse';
-import type { QueueItem, SavedQueue } from '../store/local-state';
-import { BatchRunner, sleep, withRunnerLock, type RunnerDeps, type RunnerState } from './runner';
+import { BatchRunner, sleep, withRunnerLock, type QueueItem, type RunnerDeps, type RunnerState } from './runner';
 
 const item = (i: number): QueueItem => {
   const jobId = `~01${String(i).padStart(16, '0')}`;
   return { jobId, url: `https://www.upwork.com/jobs/${jobId}` };
 };
-const queueOf = (n: number, nextIndex = 0): SavedQueue => ({ id: 'q1', createdAt: '2026-10-21T00:00:00Z', items: Array.from({ length: n }, (_, i) => item(i)), nextIndex });
+const queueOf = (n: number): QueueItem[] => Array.from({ length: n }, (_, i) => item(i));
 
-const okResult = (it: QueueItem): Result => ({ ...errorResult(it.jobId, it.url, 'E-NETWORK', '', new Date()), verdict: 'not_identifiable', error: null, jobTitle: 'Job' });
+const okResult = (it: QueueItem): Result => ({ ...errorResult(it.jobId, it.url, 'E-NETWORK', '', new Date()), verdict: 'no_potential', error: null, jobTitle: 'Job' });
 
 function setup(check: (item: QueueItem, attempt: number) => Promise<Result> | Result, delayMs = 3000) {
   const callTimes: number[] = [];
   const attempts = new Map<string, number>();
   const saved: Result[] = [];
-  const queues: SavedQueue[] = [];
   const states: RunnerState[] = [];
-  let cleared = 0;
   const deps: RunnerDeps = {
     check: async (it) => {
       callTimes.push(Date.now());
@@ -30,19 +26,17 @@ function setup(check: (item: QueueItem, attempt: number) => Promise<Result> | Re
     },
     save: async (r) => void saved.push(r),
     errorResult: (it, code, message) => errorResult(it.jobId, it.url, code, message, new Date()),
-    saveQueue: async (q) => void queues.push(structuredClone(q)),
-    clearQueue: async () => void (cleared += 1),
     sleep,
     now: () => Date.now(),
     delayMs,
     onChange: (s) => states.push(s),
   };
   const runner = new BatchRunner(deps);
-  return { runner, deps, callTimes, saved, queues, states, attempts, cleared: () => cleared };
+  return { runner, deps, callTimes, saved, states, attempts };
 }
 
-async function runToEnd(runner: BatchRunner, queue: SavedQueue, linkErrors = parseLinks('').errors) {
-  const done = runner.run(queue, linkErrors);
+async function runToEnd(runner: BatchRunner, items: QueueItem[]) {
+  const done = runner.run(items);
   await vi.runAllTimersAsync();
   return done;
 }
@@ -57,8 +51,8 @@ afterEach(() => {
 });
 
 describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
-  it('finishes a 50-link batch with the delay respected and survives one failing link', async () => {
-    const { runner, callTimes, saved, cleared } = setup((it) => {
+  it('finishes a 50-job batch with the delay respected and survives one failing job', async () => {
+    const { runner, callTimes, saved } = setup((it) => {
       if (it.jobId === item(17).jobId) throw new CheckerError('E-NOTFOUND');
       return okResult(it);
     });
@@ -70,7 +64,6 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     expect(saved[17]).toMatchObject({ verdict: 'error', error: { code: 'E-NOTFOUND' } });
     expect(final.rows.filter((r) => r.status === 'done')).toHaveLength(49);
     expect(final.completed).toBe(50);
-    expect(cleared()).toBe(1);
   });
 
   it('uses the configured delay and never less than 3 s', async () => {
@@ -82,8 +75,8 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     expect(gaps(fast.callTimes)).toEqual([3000, 3000]);
   });
 
-  it('stops on Stop and keeps the queue for Resume', async () => {
-    const { runner, callTimes, queues } = setup(okResult);
+  it('stops on Stop; the remaining jobs stay queued', async () => {
+    const { runner, callTimes } = setup(okResult);
     const done = runner.run(queueOf(5));
     await vi.advanceTimersByTimeAsync(1000);
     expect(runner.isActive()).toBe(true);
@@ -91,14 +84,13 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     const final = await done;
     expect(final.phase).toBe('stopped');
     expect(callTimes).toHaveLength(1);
-    expect(queues.at(-1)?.nextIndex).toBe(1);
     expect(final.rows.map((r) => r.status)).toEqual(['done', 'queued', 'queued', 'queued', 'queued']);
     expect(runner.isActive()).toBe(false);
   });
 
   it('Stop during a job keeps that job queued and saves nothing for it (FR-13)', async () => {
     let stop = () => {};
-    const { runner, saved, queues } = setup(async (it) => {
+    const { runner, saved } = setup(async (it) => {
       if (it.jobId === item(1).jobId) {
         stop();
         throw new DOMException('stopped', 'AbortError');
@@ -111,11 +103,10 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     expect(final.stopReason).toBeNull();
     expect(saved).toHaveLength(1);
     expect(final.rows.map((r) => r.status)).toEqual(['done', 'queued', 'queued']);
-    expect(queues.at(-1)?.nextIndex).toBe(1);
   });
 
-  it.each<ErrorCode>(['E-AUTH', 'E-SCOPE', 'E-FORMAT', 'E-BLOCKED'])('%s stops the batch and does not retry other links (FR-11)', async (code) => {
-    const { runner, callTimes, queues, saved } = setup((it) => {
+  it.each<ErrorCode>(['E-AUTH', 'E-SCOPE', 'E-FORMAT', 'E-BLOCKED'])('%s stops the batch and does not retry other jobs (FR-11)', async (code) => {
+    const { runner, callTimes, saved } = setup((it) => {
       if (it.jobId === item(1).jobId) throw new CheckerError(code, 'x');
       return okResult(it);
     });
@@ -124,10 +115,9 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     expect(final.stopReason?.code).toBe(code);
     expect(callTimes).toHaveLength(2);
     expect(saved).toHaveLength(1);
-    expect(queues.at(-1)?.nextIndex).toBe(1);
   });
 
-  it('E-NETWORK: retries once after 10 s, then marks the link failed and continues', async () => {
+  it('E-NETWORK: retries once after 10 s, then marks the job failed and continues', async () => {
     const { runner, callTimes, saved } = setup((it) => {
       if (it.jobId === item(0).jobId) throw new CheckerError('E-NETWORK');
       return okResult(it);
@@ -201,22 +191,7 @@ describe('batch runner (FR-13, NFR-01, NFR-05)', () => {
     expect(final.phase).toBe('done');
   });
 
-  it('resumes from the next unchecked link (NFR-06)', async () => {
-    const { runner, callTimes } = setup(okResult);
-    const final = await runToEnd(runner, queueOf(4, 2));
-    expect(callTimes).toHaveLength(2);
-    expect(final.rows.map((r) => r.status)).toEqual(['earlier', 'earlier', 'done', 'done']);
-    expect(final.completed).toBe(4);
-  });
-
-  it('shows invalid links as error rows without stopping (FR-06)', async () => {
-    const { runner } = setup(okResult);
-    const parsed = parseLinks(`not a link\n${item(0).url}`);
-    const final = await runToEnd(runner, { ...queueOf(0), items: parsed.links.map((l) => ({ jobId: l.jobId, url: l.url })) }, parsed.errors);
-    expect(final.rows.map((r) => [r.status, r.error?.code ?? null])).toEqual([['error', 'E-LINK'], ['done', null]]);
-  });
-
-  it('reports progress: current link and time left (FR-30)', async () => {
+  it('reports progress: current job and time left (FR-30)', async () => {
     const { runner, states } = setup(okResult, 5000);
     await runToEnd(runner, queueOf(3));
     const running = states.filter((s) => s.phase === 'running' && s.currentUrl);

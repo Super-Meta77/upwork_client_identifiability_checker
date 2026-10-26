@@ -1,5 +1,5 @@
-// NFR-01 / D-13: every Upwork request, job details and attachments alike, passes through one
-// serial gate, so at most one request is in flight.
+// NFR-01 / D-13: every Upwork request passes through one serial gate, so at most one request is
+// in flight.
 
 export interface Gate {
   run<T>(task: () => Promise<T>): Promise<T>;

@@ -7,25 +7,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:probe": "vite build --mode probe",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "ci": "npm run typecheck && npm run lint && npm run coverage",
-    "phase0:analyze": "tsx scripts/phase0/analyze-har.ts",
-    "phase0:anonymise": "tsx scripts/phase0/anonymise.ts",
-    "phase0:leak-check": "tsx scripts/phase0/leak-check.ts",
-    "make:attachments": "tsx scripts/make-synthetic-attachments.ts"
+    "ci": "npm run typecheck && npm run lint && npm run coverage"
   },
   "engines": {
     "node": ">=22.12"
   },
   "dependencies": {
     "compromise": "^14.19.0",
-    "exifr": "^7.1.3",
-    "fflate": "^0.8.3",
-    "pdf-lib": "^1.17.1",
     "preact": "^10.29.8",
     "zod": "^3.25.76"
   },
@@ -36,9 +28,7 @@
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9.39.5",
-    "fake-indexeddb": "^6.2.6",
     "happy-dom": "^20.14.6",
-    "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.72.0",
     "vite": "^7.3.7",

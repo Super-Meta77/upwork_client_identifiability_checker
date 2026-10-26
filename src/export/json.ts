@@ -7,8 +7,8 @@ export const EXPORT_WARNING =
 
 /** D-32: the checks as stored in the database (`job_checks` rows), so the file matches the history. */
 export function toJson(results: readonly Result[], now: Date): string {
-  const checks = results.map((r) => toRow(r, true)).filter((r) => r !== null);
-  return JSON.stringify({ format: 'upwork-client-checker/2', exportedAt: now.toISOString(), warning: EXPORT_WARNING, count: checks.length, checks }, null, 2);
+  const checks = results.map((r) => toRow(r)).filter((r) => r !== null);
+  return JSON.stringify({ format: 'upwork-client-checker/3', exportedAt: now.toISOString(), warning: EXPORT_WARNING, count: checks.length, checks }, null, 2);
 }
 
 export function exportFileName(kind: 'csv' | 'json', now: Date, prefix = 'client-checker'): string {

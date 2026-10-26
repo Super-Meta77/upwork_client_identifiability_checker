@@ -1,5 +1,5 @@
-// Loads saved Upwork responses. Synthetic fixtures are invented; Phase 0 adds anonymised real ones
-// (anonymised-*.json) produced by scripts/phase0/anonymise.ts.
+// Loads saved Upwork responses. Job fixtures are invented; the error fixtures named probe-* are real
+// error bodies Upwork returned on 2026-10-22.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

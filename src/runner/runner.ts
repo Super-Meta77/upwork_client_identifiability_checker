@@ -1,10 +1,8 @@
-// Batch orchestration in the side panel (D-01). One job at a time, a delay between jobs, a Stop
-// button, the fixed batch behaviour per error code (spec "Error handling") and Resume (NFR-06).
+// Checks a list of jobs in the side panel (D-01): one at a time, a delay between jobs, Stop, and the
+// fixed behaviour per error code (spec "Error handling"). The watcher runs one batch per round.
 
 import { CheckerError, errorMessage, STOPPING_CODES } from '../core/errors';
 import type { ErrorCode, Result } from '../core/types';
-import type { LinkError } from '../links/parse';
-import type { QueueItem, SavedQueue } from '../store/local-state';
 
 export const MIN_DELAY_MS = 3000;
 /** E-RATE: pause 1, 2, 5, then 10 minutes; if Upwork still limits after that, stop. */
@@ -14,13 +12,17 @@ export const NETWORK_RETRY_MS = 10_000;
 /** E-RATE also covers three server errors in a row. */
 export const SERVER_ERRORS_FOR_RATE = 3;
 
-export type RowStatus = 'queued' | 'running' | 'done' | 'error' | 'earlier';
+/** One job to check. */
+export interface QueueItem {
+  jobId: string;
+  url: string;
+}
+
+export type RowStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface BatchRow {
-  key: string;
-  input: string;
-  jobId: string | null;
-  url: string | null;
+  jobId: string;
+  url: string;
   status: RowStatus;
   result: Result | null;
   error: { code: ErrorCode; message: string } | null;
@@ -31,7 +33,7 @@ export type RunnerPhase = 'idle' | 'running' | 'waiting' | 'paused' | 'stopped' 
 export interface RunnerState {
   phase: RunnerPhase;
   rows: BatchRow[];
-  /** Jobs in this batch (valid links only). */
+  /** Jobs in this batch. */
   total: number;
   /** Jobs finished, with a result or an error. */
   completed: number;
@@ -50,8 +52,6 @@ export interface RunnerDeps {
   check(item: QueueItem, signal: AbortSignal): Promise<Result>;
   save(result: Result): Promise<void>;
   errorResult(item: QueueItem, code: ErrorCode, message: string): Result;
-  saveQueue(queue: SavedQueue): Promise<void>;
-  clearQueue(): Promise<void>;
   sleep(ms: number, signal: AbortSignal): Promise<void>;
   now(): number;
   delayMs: number;
@@ -103,7 +103,7 @@ export class BatchRunner {
     this.controller?.abort();
   }
 
-  async run(queue: SavedQueue, linkErrors: readonly LinkError[] = []): Promise<RunnerState> {
+  async run(items: readonly QueueItem[]): Promise<RunnerState> {
     if (this.controller) throw new Error('a batch is already running');
     const controller = new AbortController();
     this.controller = controller;
@@ -111,25 +111,20 @@ export class BatchRunner {
     this.backoffStep = 0;
 
     const delayMs = Math.max(MIN_DELAY_MS, this.deps.delayMs);
-    const rows: BatchRow[] = [
-      ...linkErrors.map((e): BatchRow => ({ key: `line-${e.line}`, input: e.input, jobId: null, url: null, status: 'error', result: null, error: { code: e.code, message: e.message } })),
-      ...queue.items.map((item, i): BatchRow => ({ key: item.jobId, input: item.url, jobId: item.jobId, url: item.url, status: i < queue.nextIndex ? 'earlier' : 'queued', result: null, error: null })),
-    ];
-    const rowFor = (i: number) => rows[linkErrors.length + i]!;
-    this.update({ ...emptyState(), phase: 'running', rows, total: queue.items.length, completed: queue.nextIndex });
+    const rows: BatchRow[] = items.map((item) => ({ jobId: item.jobId, url: item.url, status: 'queued', result: null, error: null }));
+    this.update({ ...emptyState(), phase: 'running', rows, total: items.length });
 
     try {
-      await this.deps.saveQueue(queue);
-      for (let i = queue.nextIndex; i < queue.items.length; i += 1) {
+      for (let i = 0; i < items.length; i += 1) {
         if (controller.signal.aborted) break;
-        if (i > queue.nextIndex) {
+        if (i > 0) {
           this.update({ phase: 'waiting', currentUrl: null });
           await this.deps.sleep(delayMs, controller.signal);
           if (controller.signal.aborted) break;
         }
 
-        const item = queue.items[i]!;
-        const row = rowFor(i);
+        const item = items[i]!;
+        const row = rows[i]!;
         row.status = 'running';
         this.update({ phase: 'running', currentUrl: item.url, rows: [...rows] });
 
@@ -145,8 +140,6 @@ export class BatchRunner {
           row.status = 'error';
           row.error = { code: outcome.code, message: outcome.message };
           this.update({ phase: 'stopped', stopReason: { code: outcome.code, message: outcome.message }, rows: [...rows], currentUrl: null, pausedUntil: null });
-          // The failed job stays next in the queue so Retry / Resume starts from it.
-          await this.deps.saveQueue({ ...queue, nextIndex: i });
           return this.state;
         }
 
@@ -155,14 +148,12 @@ export class BatchRunner {
         row.result = result;
         row.error = outcome.kind === 'error' ? { code: outcome.code, message: outcome.message } : null;
         await this.persist(result);
-        await this.deps.saveQueue({ ...queue, nextIndex: i + 1 });
         this.update({ completed: this.state.completed + 1, rows: [...rows], pausedUntil: null });
       }
 
       if (controller.signal.aborted) {
         this.update({ phase: 'stopped', currentUrl: null, pausedUntil: null, stopReason: null, rows: [...rows] });
       } else {
-        await this.deps.clearQueue();
         this.update({ phase: 'done', currentUrl: null, pausedUntil: null });
       }
       return this.state;
@@ -181,7 +172,7 @@ export class BatchRunner {
         this.backoffStep = 0;
         return { kind: 'result', result };
       } catch (e) {
-        // Stop during a job: it ends without another request and stays queued for Resume.
+        // Stop during a job: it ends without another request and stays queued.
         if (signal.aborted) return { kind: 'aborted' };
         error = e instanceof CheckerError ? e : new CheckerError('E-NETWORK', 'unexpected');
       }
@@ -196,7 +187,7 @@ export class BatchRunner {
 
       if (code === 'E-RATE') {
         const minutes = BACKOFF_MINUTES[this.backoffStep];
-        if (minutes === undefined) return { kind: 'stop', code, message: 'Upwork is still limiting requests. The batch stopped; try again later.' };
+        if (minutes === undefined) return { kind: 'stop', code, message: 'Upwork is still limiting requests, so checking stopped. Try again later.' };
         this.backoffStep += 1;
         this.update({ phase: 'paused', pausedUntil: this.deps.now() + minutes * 60_000, stopReason: { code, message: errorMessage('E-RATE', String(minutes)) } });
         await this.deps.sleep(minutes * 60_000, signal);
@@ -238,7 +229,7 @@ export class BatchRunner {
   }
 }
 
-/** D-25: only one runner across all side-panel windows. Returns false when another window holds it. */
+/** D-25: only one watcher across all side-panel windows. Returns false when another window holds it. */
 export async function withRunnerLock(work: () => Promise<void>): Promise<boolean> {
   const locks = (globalThis.navigator as Navigator | undefined)?.locks;
   if (!locks) {

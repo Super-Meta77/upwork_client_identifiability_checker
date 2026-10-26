@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_LINKS_PER_BATCH, parseJobId, parseLinks } from './parse';
+import { jobUrl, parseJobId } from './parse';
 
 const ID = '~01a2b3c4d5e6f7a8b9';
 const ID2 = '~021843675512345678';
@@ -82,44 +82,8 @@ describe('parseJobId — rejected links (FR-04)', () => {
   });
 });
 
-describe('parseLinks (FR-01, FR-02, FR-05, FR-06)', () => {
-  it('normalises every accepted link to https://www.upwork.com/jobs/~ID', () => {
-    const result = parseLinks(`https://www.upwork.com/nx/search/jobs/details/${ID}?x=1`);
-    expect(result.links).toEqual([{ line: 1, input: expect.any(String), jobId: ID, url: NORMAL }]);
-  });
-
-  it('ignores blank lines and keeps line numbers', () => {
-    const result = parseLinks(`\n\n${NORMAL}\n   \nhttps://www.upwork.com/jobs/${ID2}\n`);
-    expect(result.links.map((l) => l.line)).toEqual([3, 5]);
-    expect(result.errors).toEqual([]);
-  });
-
-  it('removes duplicates by job ID, across different link forms', () => {
-    const result = parseLinks(
-      [NORMAL, `https://www.upwork.com/jobs/Some-slug_${ID}`, `${NORMAL.toUpperCase()}`].join('\n'),
-    );
-    expect(result.links).toHaveLength(1);
-    expect(result.duplicates).toBe(2);
-  });
-
-  it('reports invalid links as E-LINK rows without stopping the rest', () => {
-    const result = parseLinks([`https://www.upwork.com/freelancers/${ID}`, NORMAL, 'nonsense'].join('\n'));
-    expect(result.links.map((l) => l.jobId)).toEqual([ID]);
-    expect(result.errors).toEqual([
-      expect.objectContaining({ line: 1, code: 'E-LINK' }),
-      expect.objectContaining({ line: 3, code: 'E-LINK' }),
-    ]);
-    expect(result.errors[0]?.message).toContain('/jobs/');
-  });
-
-  it('accepts at most 50 links per batch', () => {
-    const lines = Array.from({ length: 53 }, (_, i) => `https://www.upwork.com/jobs/~01${String(i).padStart(16, '0')}`);
-    const result = parseLinks(lines.join('\n'));
-    expect(result.links).toHaveLength(MAX_LINKS_PER_BATCH);
-    expect(result.overLimit).toBe(3);
-  });
-
-  it('handles Windows line endings', () => {
-    expect(parseLinks(`${NORMAL}\r\nhttps://www.upwork.com/jobs/${ID2}\r\n`).links).toHaveLength(2);
+describe('jobUrl', () => {
+  it('builds the canonical job link', () => {
+    expect(jobUrl('~021234567890abcdef')).toBe('https://www.upwork.com/jobs/~021234567890abcdef');
   });
 });

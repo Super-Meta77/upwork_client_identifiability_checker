@@ -3,8 +3,6 @@ import { formatDuration } from '../labels';
 
 interface Props {
   watch: WatchState;
-  /** A pasted-links batch is running, here or in another window. */
-  busy: boolean;
   intervalSeconds: number;
   onRun: () => void;
   onAuto: (on: boolean) => void;
@@ -30,7 +28,7 @@ function statusLine(w: WatchState): string | null {
 }
 
 /** D-31: Run refreshes the Upwork search tab once; Auto-refresh repeats it every interval. */
-export function WatchView({ watch, busy, intervalSeconds, onRun, onAuto, onStop }: Props) {
+export function WatchView({ watch, intervalSeconds, onRun, onAuto, onStop }: Props) {
   const active = watch.phase !== 'idle';
   const inRound = watch.phase === 'refreshing' || watch.phase === 'checking';
   const line = statusLine(watch);
@@ -42,11 +40,11 @@ export function WatchView({ watch, busy, intervalSeconds, onRun, onAuto, onStop 
         open: closing it stops auto-refresh.
       </p>
       <div class="row wrap">
-        <button type="button" class="primary" onClick={onRun} disabled={busy || inRound}>
+        <button type="button" class="primary" onClick={onRun} disabled={inRound}>
           Run
         </button>
         <label class="check">
-          <input type="checkbox" checked={watch.auto} disabled={busy} onChange={(e) => onAuto(e.currentTarget.checked)} />
+          <input type="checkbox" checked={watch.auto} onChange={(e) => onAuto(e.currentTarget.checked)} />
           Auto-refresh every {formatDuration(intervalSeconds)}
         </label>
         {active && (

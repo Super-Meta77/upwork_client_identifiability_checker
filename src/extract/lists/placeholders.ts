@@ -1,5 +1,5 @@
 // FR-16 / D-09: values of the company-name field that do not name anyone.
-// PROVISIONAL: Phase 0 extends this list from real responses (docs/decisions.md).
+// Extend this list when real responses show other placeholders (docs/decisions.md, D-09).
 
 export const COMPANY_PLACEHOLDERS: ReadonlySet<string> = new Set([
   'n/a', 'na', 'none', 'null', 'undefined', 'nil', 'private', 'confidential', 'individual',

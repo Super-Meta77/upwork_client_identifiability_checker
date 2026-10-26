@@ -1,6 +1,5 @@
-// FR-12: the job-details query asks only for the fields listed in "Data requirements".
-// PROVISIONAL: the operation shape, argument names and nesting are confirmed in Phase 0 from the
-// query the Upwork job page itself sends (scripts/phase0/analyze-har.ts prints it).
+// FR-12: the job-details query asks only for the fields the extractors read (D-33). The operation
+// and field paths match the query Upwork's own job page sends (confirmed live, 2026-10-22).
 
 export const JOB_DETAILS_QUERY = `query JobAuthDetails($id: ID!) {
   jobAuthDetails(id: $id) {
@@ -8,32 +7,15 @@ export const JOB_DETAILS_QUERY = `query JobAuthDetails($id: ID!) {
       job {
         info { title }
         description
-        attachments { fileName uri length }
+        attachments { fileName }
       }
       questions { question }
     }
     buyer {
-      enterprise
       info {
-        company {
-          name
-          companyId
-          contractDate
-          profile { industry size }
-        }
-        location { city country countryTimezone }
-        stats {
-          totalCharges { amount }
-          totalAssignments
-          feedbackCount
-        }
-        jobs {
-          postedCount
-          openJobs { title }
-        }
+        company { name }
       }
       workHistory {
-        jobInfo { title }
         feedback { comment }
         feedbackToClient { comment }
         contractorInfo { contractorName }

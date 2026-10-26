@@ -2,22 +2,22 @@
 
 export { createUpworkClient, chromeUpworkDeps, type UpworkClient, type UpworkDeps } from './client';
 export { createGate, upworkGate, type Gate } from './gate';
-export { chromeTokenSource, isTokenShaped, loginSourceLabel, type TokenSource } from './token';
+export { chromeTokenSource, isTokenShaped, type TokenSource } from './token';
+export { readJobResponse, classifyGraphqlErrors } from './classify';
 
-import { chromeTokenSource as makeTokenSource, loginSourceLabel } from './token';
+import { chromeTokenSource as makeTokenSource } from './token';
 
-/** The current login source (e.g. "manual entry", "cookie UniversalSearchNuxt_vt"), or null. Never the token. */
-export function getLoginStatus(): Promise<string | null> {
-  return loginSourceLabel(makeTokenSource());
+/** True when a token is set for this browser session. Never returns the token. */
+export async function hasToken(): Promise<boolean> {
+  return (await makeTokenSource().get()) !== null;
 }
 
 /** D-30: store the token the user pasted in Settings (session memory only, NFR-08). */
-export function setManualToken(token: string): Promise<void> {
-  return makeTokenSource().setManual(token);
+export function setToken(token: string): Promise<void> {
+  return makeTokenSource().set(token);
 }
 
-/** D-30: forget the manually entered token. */
-export function clearManualToken(): Promise<void> {
-  return makeTokenSource().clearManual();
+/** D-30: forget the pasted token. */
+export function clearToken(): Promise<void> {
+  return makeTokenSource().clear();
 }
-export { readJobResponse, classifyGraphqlErrors } from './classify';

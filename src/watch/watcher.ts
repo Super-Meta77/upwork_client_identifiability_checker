@@ -1,13 +1,12 @@
 // D-31: watch an Upwork job-search tab. Each round makes the page search again (it types one more
 // "/" into the search box, or reloads the page), reads the job links and checks every job not
-// checked before with the batch runner, so pacing, error handling, saving and the daily limit work
-// as for pasted links. Run does one round now; with auto-refresh on, rounds repeat every interval.
+// checked before with the batch runner, which handles pacing, errors and saving. Run does one round
+// now; with auto-refresh on, rounds repeat every interval.
 // It runs in the side panel and only while the user has asked for it (D-01, D-24).
 
 import { errorMessage } from '../core/errors';
 import type { ErrorCode } from '../core/types';
-import { emptyState, type BatchRow, type RunnerState } from '../runner/runner';
-import type { SavedQueue } from '../store/local-state';
+import { emptyState, type BatchRow, type QueueItem, type RunnerState } from '../runner/runner';
 import { isSearchPageUrl, jobsFromLinks, nextSearch, searchUrl } from './search-page';
 import { WatchError, type TabDriver } from './tabs';
 
@@ -47,7 +46,7 @@ export interface WatchState {
 }
 
 export interface WatchRunner {
-  run(queue: SavedQueue): Promise<RunnerState>;
+  run(items: readonly QueueItem[]): Promise<RunnerState>;
   stop(): void;
 }
 
@@ -65,7 +64,6 @@ export interface WatchDeps {
   dayCount(): Promise<number>;
   sleep(ms: number, signal: AbortSignal): Promise<void>;
   now(): number;
-  newId(): string;
   onChange(state: WatchState): void;
 }
 
@@ -212,7 +210,7 @@ export class SearchWatcher {
     if (!items.length || signal.aborted) return null;
 
     this.update({ phase: 'checking' });
-    const final = await this.runner!.run({ id: deps.newId(), createdAt: new Date(deps.now()).toISOString(), items, nextIndex: 0 });
+    const final = await this.runner!.run(items);
     this.doneRows = [...final.rows, ...this.doneRows];
     this.update({ checked: this.state.checked + final.completed, rows: this.doneRows });
     // A stopping error (E-AUTH, E-SCOPE, E-BLOCKED, E-FORMAT, lasting E-RATE) ends watching too.

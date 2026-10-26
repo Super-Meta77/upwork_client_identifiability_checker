@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     setupFiles: ['test/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
     restoreMocks: true,
     coverage: {
       provider: 'v8',

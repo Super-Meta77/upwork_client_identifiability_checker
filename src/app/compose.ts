@@ -2,12 +2,11 @@
 
 import { newId as defaultNewId } from '../core/ids';
 import type { ErrorCode, Result } from '../core/types';
-import { parseAttachment } from '../extract/props/parse';
 import { errorResult } from '../pipeline/analyse';
 import { checkJob } from '../pipeline/check';
-import { sleep, type RunnerDeps, type RunnerState } from '../runner/runner';
+import { sleep, type QueueItem, type RunnerDeps, type RunnerState } from '../runner/runner';
 import { checksStore } from '../store/checks';
-import { clearQueue, incrementDayCount, saveQueue, type QueueItem } from '../store/local-state';
+import { incrementDayCount } from '../store/local-state';
 import type { Settings } from '../store/settings';
 import { chromeUpworkDeps, createUpworkClient, type UpworkClient } from '../upwork';
 
@@ -36,7 +35,7 @@ export function createChecker(settings: Settings, options: ComposeOptions = {}):
       },
     }),
   );
-  const check = (item: QueueItem, signal?: AbortSignal) => checkJob(item, settings, { upwork, parseAttachment, now, newId }, signal);
+  const check = (item: QueueItem, signal?: AbortSignal) => checkJob(item, settings, { upwork, now, newId }, signal);
   return {
     upwork,
     check,
@@ -44,8 +43,6 @@ export function createChecker(settings: Settings, options: ComposeOptions = {}):
       check,
       save: options.save ?? ((result) => checksStore().save(result)),
       errorResult: (item: QueueItem, code: ErrorCode, message: string) => errorResult(item.jobId, item.url, code, message, now()),
-      saveQueue,
-      clearQueue,
       sleep,
       now: () => Date.now(),
       delayMs: settings.delaySeconds * 1000,

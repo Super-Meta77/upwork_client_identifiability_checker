@@ -1,7 +1,7 @@
 // The confidence table. FR-24: this file is the only place where confidence is assigned.
-// Rows are listed in docs/decisions.md ("Final confidence table").
+// Rows are listed in docs/decisions.md ("Confidence table").
 
-import type { Confidence, Evidence, Finding, ReasonId, RuleId, SourceId } from '../core/types';
+import type { Confidence, Evidence, Finding, ReasonId, RuleId } from '../core/types';
 
 export interface RuleOutcome {
   ruleId: RuleId;
@@ -27,14 +27,6 @@ export function ruleFor(f: Finding): RuleOutcome {
       return { ruleId: 'C-S2T-EMAIL', confidence: 'medium' };
     case 'S2T-person':
       return { ruleId: 'C-S2T-PERSON', confidence: f.kind === 'person_full_name' ? 'medium' : 'low' };
-    case 'S2P-company':
-      return { ruleId: 'C-S2P-CO', confidence: 'medium' };
-    case 'S2P-person':
-      return { ruleId: 'C-S2P-PERSON', confidence: f.kind === 'person_first_name' ? 'low' : 'medium' };
-    case 'S2P-copyright':
-      return { ruleId: 'C-S2P-COPY', confidence: f.kind === 'person_first_name' ? 'low' : 'medium' };
-    case 'S2P-title':
-      return { ruleId: 'C-S2P-TITLE', confidence: 'low' };
     case 'S2F-name':
       return { ruleId: 'C-S2F', confidence: 'low' };
     case 'S5-name':
@@ -49,7 +41,6 @@ export const REASON_BY_SOURCE: Record<Finding['source'], ReasonId> = {
   S1: 'R-S1',
   'S2-text': 'R-S2-text',
   'S2-file': 'R-S2-file',
-  'S2-props': 'R-S2-props',
   S5: 'R-S5',
 };
 
@@ -65,7 +56,7 @@ export function toEvidence(findings: readonly Finding[], newId: () => string): E
     const { ruleId, confidence } = ruleFor(f);
     return {
       id: newId(),
-      source: f.source as SourceId,
+      source: f.source,
       kind: f.kind,
       location: f.location,
       value: f.value,

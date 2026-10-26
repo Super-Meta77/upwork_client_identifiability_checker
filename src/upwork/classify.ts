@@ -1,6 +1,6 @@
 // D-11 / D-12: turn an HTTP response into job data or a coded error. GraphQL errors are classified
 // before schema validation, so a permission error is never mistaken for "no evidence".
-// PROVISIONAL: the message patterns are refined from the Phase 0 error catalogue.
+// The patterns cover the real error bodies in test/fixtures/errors (probe-2026-10-22-*).
 
 import { CheckerError } from '../core/errors';
 import type { JobData } from '../core/types';

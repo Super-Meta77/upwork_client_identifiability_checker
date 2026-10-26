@@ -15,24 +15,14 @@ describe('CSV export (FR-33)', () => {
   it('uses the spec columns in order', () => {
     const [header] = toCsv([]).replace('﻿', '').split('\r\n');
     expect(header).toBe(CSV_COLUMNS.join(','));
-    expect(CSV_COLUMNS).toEqual(['job_id', 'url', 'checked_at', 'job_title', 'verdict', 'best_value', 'best_kind', 'best_source', 'best_confidence', 's3_score', 's3_attributes', 'evidence_count', 'ground_truth_name']);
+    expect(CSV_COLUMNS).toEqual(['job_id', 'url', 'checked_at', 'job_title', 'verdict', 'best_value', 'best_kind', 'best_source', 'best_confidence', 'evidence_count']);
   });
 
-  it('writes the best evidence, S3 and ground truth', () => {
+  it('writes the verdict and the best evidence', () => {
     const best = evidence({ id: 'b', value: 'Acme, Ltd', kind: 'company_name', source: 'S1', confidence: 'high' });
-    const csv = toCsv([
-      base({
-        verdict: 'identified',
-        error: null,
-        jobTitle: 'Logo "v2"',
-        evidence: [best, evidence({ id: 'c' })],
-        bestEvidenceId: 'b',
-        distinctiveness: { score: 40, attributes: ['city', 'industry'], details: [] },
-        groundTruth: { personName: 'Jo Bloggs', matchedEvidenceIds: [] },
-      }),
-    ]);
+    const csv = toCsv([base({ verdict: 'has_potential', error: null, jobTitle: 'Logo "v2"', evidence: [best, evidence({ id: 'c' })], bestEvidenceId: 'b' })]);
     const line = csv.split('\r\n')[1];
-    expect(line).toBe('~01abc,https://www.upwork.com/jobs/~01abc,2026-10-21T09:30:00.000Z,"Logo ""v2""",identified,"Acme, Ltd",company_name,S1,high,40,city;industry,2,Jo Bloggs');
+    expect(line).toBe('~01abc,https://www.upwork.com/jobs/~01abc,2026-10-21T09:30:00.000Z,"Logo ""v2""",has_potential,"Acme, Ltd",company_name,S1,high,2');
   });
 
   it.each([
@@ -62,10 +52,10 @@ describe('CSV export (FR-33)', () => {
 
 describe('JSON export (FR-33)', () => {
   it('writes the checks as stored in the database, with the personal-data warning (D-32)', () => {
-    const checked = base({ verdict: 'partial', error: null, jobTitle: 'Logo', distinctiveness: { score: 10, attributes: [], details: [] }, groundTruth: { companyName: 'Acme', matchedEvidenceIds: [] } });
+    const checked = base({ verdict: 'no_potential', error: null, jobTitle: 'Logo' });
     const parsed = JSON.parse(toJson([checked, base()], new Date('2026-10-21T10:00:00Z'))) as { format: string; warning: string; count: number; checks: CheckRow[] };
-    expect(parsed).toMatchObject({ format: 'upwork-client-checker/2', warning: EXPORT_WARNING, count: 1 });
-    expect(parsed.checks).toEqual([toRow(checked, true)]);
+    expect(parsed).toMatchObject({ format: 'upwork-client-checker/3', warning: EXPORT_WARNING, count: 1 });
+    expect(parsed.checks).toEqual([toRow(checked)]);
   });
 
   it('names files with a timestamp', () => {

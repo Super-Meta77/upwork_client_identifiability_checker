@@ -39,24 +39,7 @@ export function evidence(partial: Partial<Evidence>): Evidence {
 }
 
 export function emptyBuyer(overrides: Partial<BuyerData> = {}): BuyerData {
-  return {
-    companyName: null,
-    companyId: null,
-    contractDate: null,
-    industry: null,
-    size: null,
-    enterprise: null,
-    city: null,
-    country: null,
-    countryTimezone: null,
-    totalCharges: null,
-    totalAssignments: null,
-    feedbackCount: null,
-    postedCount: null,
-    openJobTitles: [],
-    workHistory: [],
-    ...overrides,
-  };
+  return { companyName: null, workHistory: [], ...overrides };
 }
 
 export function job(overrides: Partial<Omit<JobData, 'buyer'>> & { buyer?: Partial<BuyerData> } = {}): JobData {
@@ -66,7 +49,7 @@ export function job(overrides: Partial<Omit<JobData, 'buyer'>> & { buyer?: Parti
     title: 'Build a landing page',
     description: '',
     questions: [],
-    attachments: [],
+    attachmentNames: [],
     ...rest,
     buyer: emptyBuyer(buyer),
   };

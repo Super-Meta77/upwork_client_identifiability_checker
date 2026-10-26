@@ -39,42 +39,21 @@ function createArea(): FakeStorageArea {
 
 export interface FakeChrome {
   storage: { local: FakeStorageArea; session: FakeStorageArea };
-  cookies: {
-    get(details: { url: string; name: string }): Promise<{ name: string; value: string } | null>;
-    getAll(details: { domain?: string; name?: string; url?: string }): Promise<{ name: string; value: string; domain: string; path: string }[]>;
-  };
   sidePanel: { setPanelBehavior(behavior: unknown): Promise<void> };
   runtime: {
     onStartup: { addListener(fn: () => void): void };
     onInstalled: { addListener(fn: () => void): void };
   };
-  /** Test helper: cookies by name for https://www.upwork.com. */
-  _cookies: Map<string, string>;
 }
 
 export function createFakeChrome(): FakeChrome {
-  const cookies = new Map<string, string>();
   return {
     storage: { local: createArea(), session: createArea() },
-    cookies: {
-      async get({ url, name }) {
-        if (!url.startsWith('https://www.upwork.com')) return null;
-        const value = cookies.get(name);
-        return value === undefined ? null : { name, value };
-      },
-      // Cookies are stored by name only; getAll reports each on .upwork.com at path '/'.
-      async getAll({ name }) {
-        return [...cookies]
-          .filter(([cookieName]) => name === undefined || cookieName === name)
-          .map(([cookieName, value]) => ({ name: cookieName, value, domain: '.upwork.com', path: '/' }));
-      },
-    },
     sidePanel: { async setPanelBehavior() {} },
     runtime: {
       onStartup: { addListener() {} },
       onInstalled: { addListener() {} },
     },
-    _cookies: cookies,
   };
 }
 

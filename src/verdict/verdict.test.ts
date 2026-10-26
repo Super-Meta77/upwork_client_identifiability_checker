@@ -19,13 +19,6 @@ describe('confidence table (one case per row)', () => {
     ['S2 email domain as website', { detector: 'S2T-email-domain', kind: 'website' }, 'C-S2T-EMAIL', 'medium'],
     ['S2 self-introduction, full name', { detector: 'S2T-person', kind: 'person_full_name' }, 'C-S2T-PERSON', 'medium'],
     ['S2 self-introduction, first name', { detector: 'S2T-person', kind: 'person_first_name' }, 'C-S2T-PERSON', 'low'],
-    ['S2 props Office Company', { detector: 'S2P-company', source: 'S2-props' }, 'C-S2P-CO', 'medium'],
-    ['S2 props author, 2+ words', { detector: 'S2P-person', source: 'S2-props', kind: 'person_full_name' }, 'C-S2P-PERSON', 'medium'],
-    ['S2 props author, 1 word', { detector: 'S2P-person', source: 'S2-props', kind: 'person_first_name' }, 'C-S2P-PERSON', 'low'],
-    ['S2 props author with legal ending', { detector: 'S2P-person', source: 'S2-props', kind: 'company_name' }, 'C-S2P-PERSON', 'medium'],
-    ['S2 props EXIF copyright, company', { detector: 'S2P-copyright', source: 'S2-props' }, 'C-S2P-COPY', 'medium'],
-    ['S2 props EXIF copyright, 1 word', { detector: 'S2P-copyright', source: 'S2-props', kind: 'person_first_name' }, 'C-S2P-COPY', 'low'],
-    ['S2 props title', { detector: 'S2P-title', source: 'S2-props' }, 'C-S2P-TITLE', 'low'],
     ['S2 file name', { detector: 'S2F-name', source: 'S2-file' }, 'C-S2F', 'low'],
     ['S5 first name, 2+ reviews', { detector: 'S5-name', source: 'S5', kind: 'person_first_name', mentions: 2 }, 'C-S5-FIRST', 'medium'],
     ['S5 first name, 1 review', { detector: 'S5-name', source: 'S5', kind: 'person_first_name', mentions: 1 }, 'C-S5-FIRST', 'low'],
@@ -91,7 +84,6 @@ describe('normalisation and matching', () => {
   it('matches names across kinds after normalisation', () => {
     expect(valuesAgree({ kind: 'company_name', value: 'John Smith' }, { kind: 'person_full_name', value: 'john smith' })).toBe(true);
     expect(valuesAgree({ kind: 'person_first_name', value: 'Sarah' }, { kind: 'person_first_name', value: 'SARAH' })).toBe(true);
-    expect(valuesAgree({ kind: 'attribute', value: 'x' }, { kind: 'company_name', value: 'x' })).toBe(false);
   });
 
   it('does not match a website to a first name or a very short name', () => {
@@ -104,7 +96,7 @@ describe('agreement rule (D-03)', () => {
   it('raises both findings from different sources by one level', () => {
     const out = applyAgreement([
       evidence({ id: 'a', source: 'S2-text', kind: 'website', value: 'acme-logistics.com', confidence: 'medium' }),
-      evidence({ id: 'b', source: 'S2-props', kind: 'company_name', value: 'Acme Logistics Ltd', confidence: 'medium' }),
+      evidence({ id: 'b', source: 'S2-file', kind: 'company_name', value: 'Acme Logistics Ltd', confidence: 'medium' }),
     ]);
     expect(out.map((e) => e.confidence)).toEqual(['high', 'high']);
     expect(out[0]?.agreesWith).toEqual(['b']);
@@ -129,7 +121,7 @@ describe('agreement rule (D-03)', () => {
   it('raises a finding only once, however many findings agree with it', () => {
     const out = applyAgreement([
       evidence({ id: 'a', source: 'S5', kind: 'person_first_name', value: 'Sarah', confidence: 'low', baseConfidence: 'low' }),
-      evidence({ id: 'b', source: 'S2-props', kind: 'person_full_name', value: 'Sarah Kim' }),
+      evidence({ id: 'b', source: 'S2-file', kind: 'person_full_name', value: 'Sarah Kim' }),
       evidence({ id: 'c', source: 'S2-text', kind: 'person_full_name', value: 'Sarah Kim' }),
     ]);
     expect(out[0]).toMatchObject({ confidence: 'medium', agreesWith: ['b', 'c'] });
@@ -145,71 +137,41 @@ describe('agreement rule (D-03)', () => {
   });
 });
 
-describe('verdict rules, first match wins', () => {
-  const base = { s3Score: 0, narrowableThreshold: 70, failed: false };
-
-  it('1. error when the job failed', () => {
-    expect(decideVerdict({ ...base, evidence: [evidence({ confidence: 'high' })], failed: true })).toBe('error');
+describe('verdict (D-33)', () => {
+  it.each(['company_name', 'person_full_name', 'person_first_name', 'website', 'email'] as const)('has potential: a Medium %s', (kind) => {
+    expect(decideVerdict([evidence({ kind, confidence: 'medium' })])).toBe('has_potential');
   });
 
-  it('2. identified: a High company name', () => {
-    expect(decideVerdict({ ...base, evidence: [evidence({ kind: 'company_name', confidence: 'high' })] })).toBe('identified');
+  it('has potential: a High finding', () => {
+    expect(decideVerdict([evidence({ kind: 'website', confidence: 'high' })])).toBe('has_potential');
   });
 
-  it('2. identified: a High full name', () => {
-    expect(decideVerdict({ ...base, evidence: [evidence({ kind: 'person_full_name', confidence: 'high' })] })).toBe('identified');
+  it('no potential: only Low findings, or none (D-02)', () => {
+    expect(decideVerdict([evidence({ kind: 'person_first_name', confidence: 'low' }), evidence({ kind: 'website', confidence: 'low' })])).toBe('no_potential');
+    expect(decideVerdict([])).toBe('no_potential');
   });
 
-  it('a High website alone is not "identified"', () => {
-    expect(decideVerdict({ ...base, evidence: [evidence({ kind: 'website', confidence: 'high' })] })).toBe('partial');
-  });
-
-  it.each(['company_name', 'person_full_name', 'person_first_name', 'website', 'email'] as const)(
-    '3. partial: a Medium %s',
-    (kind) => {
-      expect(decideVerdict({ ...base, evidence: [evidence({ kind, confidence: 'medium' })] })).toBe('partial');
-    },
-  );
-
-  it('3. Low findings alone do not make a job partial (D-02)', () => {
-    const lows = [evidence({ kind: 'person_first_name', confidence: 'low' }), evidence({ kind: 'website', confidence: 'low' })];
-    expect(decideVerdict({ ...base, evidence: lows })).toBe('not_identifiable');
-    expect(decideVerdict({ ...base, evidence: lows, s3Score: 80 })).toBe('narrowable');
-  });
-
-  it('4. narrowable: S3 score at the threshold', () => {
-    expect(decideVerdict({ ...base, evidence: [], s3Score: 70 })).toBe('narrowable');
-  });
-
-  it('5. not identifiable: everything else', () => {
-    expect(decideVerdict({ ...base, evidence: [], s3Score: 69 })).toBe('not_identifiable');
-    expect(decideVerdict({ ...base, evidence: [], s3Score: null })).toBe('not_identifiable');
-  });
-
-  it('two agreeing Medium findings from different sources make a job identified (FR-26)', () => {
+  it('two agreeing Low findings from different sources give potential (D-03)', () => {
     const j = judge(
       [
-        finding({ detector: 'S2T-website', kind: 'website', value: 'acme-logistics.com', ownershipCue: true }),
-        finding({ detector: 'S2P-company', source: 'S2-props', value: 'Acme Logistics Ltd' }),
+        finding({ detector: 'S2T-website', kind: 'website', value: 'acme-logistics.com' }),
+        finding({ detector: 'S2F-name', source: 'S2-file', value: 'Acme Logistics' }),
       ],
-      0,
-      70,
       sequentialIds(),
     );
-    expect(j.verdict).toBe('identified');
+    expect(j.evidence.map((e) => e.confidence)).toEqual(['medium', 'medium']);
+    expect(j.verdict).toBe('has_potential');
   });
 
-  it('two Medium findings from the same source stay partial (D-03)', () => {
+  it('two Low findings from the same source stay without potential (D-03)', () => {
     const j = judge(
       [
-        finding({ detector: 'S2T-company-intro', value: 'Acme Ltd' }),
-        finding({ detector: 'S2T-website', kind: 'website', value: 'acme.com', ownershipCue: true }),
+        finding({ detector: 'S2T-company-legal', value: 'Acme Ltd' }),
+        finding({ detector: 'S2T-website', kind: 'website', value: 'acme.com' }),
       ],
-      0,
-      70,
       sequentialIds(),
     );
-    expect(j.verdict).toBe('partial');
+    expect(j.verdict).toBe('no_potential');
   });
 });
 
@@ -223,11 +185,10 @@ describe('best evidence tie-break (D-08)', () => {
     expect(bestEvidence(list)?.id).toBe('med');
   });
 
-  it('then the source order S1, S2 props, S2 text, S5, S2 file', () => {
-    const sources = ['S2-file', 'S5', 'S2-text', 'S2-props', 'S1'] as const;
+  it('then the source order S1, S2 text, S5, S2 file', () => {
+    const sources = ['S2-file', 'S5', 'S2-text', 'S1'] as const;
     const list = sources.map((source) => evidence({ id: source, source }));
     expect(bestEvidence(list)?.id).toBe('S1');
-    expect(bestEvidence(list.slice(0, 4))?.id).toBe('S2-props');
     expect(bestEvidence(list.slice(0, 3))?.id).toBe('S2-text');
     expect(bestEvidence(list.slice(0, 2))?.id).toBe('S5');
   });
@@ -247,8 +208,8 @@ describe('best evidence tie-break (D-08)', () => {
   });
 
   it('still names a best Low finding when nothing stronger exists', () => {
-    const j = judge([finding({ detector: 'S2F-name', source: 'S2-file', value: 'Northwind' })], 10, 70, sequentialIds());
-    expect(j.verdict).toBe('not_identifiable');
+    const j = judge([finding({ detector: 'S2F-name', source: 'S2-file', value: 'Northwind' })], sequentialIds());
+    expect(j.verdict).toBe('no_potential');
     expect(j.bestEvidenceId).toBe('e1');
   });
 });

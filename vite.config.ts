@@ -7,8 +7,8 @@ export default defineConfig({
   build: {
     target: 'chrome120',
     sourcemap: false,
-    // pdf-lib and compromise make the panel bundle ~1 MB; it loads from disk, not the network.
-    chunkSizeWarningLimit: 1500,
+    // compromise (the name tagger) makes the panel bundle large; it loads from disk, not the network.
+    chunkSizeWarningLimit: 600,
   },
   server: {
     port: 5173,

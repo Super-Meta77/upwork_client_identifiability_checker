@@ -1,8 +1,8 @@
 // Lint rules that enforce parts of the spec in code review:
-//   NFR-07 / NFR-12  fetch and chrome.cookies only inside src/upwork (plus src/store/supabase.ts, D-32)
+//   NFR-07 / NFR-12  fetch only inside src/upwork (plus src/store/supabase.ts, D-32); no chrome.cookies
 //   FR-24            confidence is only set inside src/verdict
 //   NFR-10           no innerHTML / dangerouslySetInnerHTML anywhere
-//   NFR-08           no console output except through src/core/log.ts (which redacts)
+//   NFR-08           no console output at all, so a token can never be logged
 
 import tseslint from 'typescript-eslint';
 
@@ -18,11 +18,11 @@ const htmlProperties = [
   { property: 'innerHTML', message: 'NFR-10: use textContent or Preact rendering.' },
   { property: 'outerHTML', message: 'NFR-10: use textContent or Preact rendering.' },
 ];
-const cookies = { object: 'chrome', property: 'cookies', message: 'NFR-12: only src/upwork reads Upwork cookies.' };
+const cookies = { object: 'chrome', property: 'cookies', message: 'D-33: the extension does not read cookies; the token is pasted in Settings.' };
 const fetchGlobal = { name: 'fetch', message: 'NFR-07 / NFR-12: only src/upwork may call fetch.' };
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'phase0/**'] },
+  { ignores: ['dist/**', 'coverage/**', 'node_modules/**'] },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],
@@ -42,10 +42,7 @@ export default tseslint.config(
   },
   {
     files: ['src/upwork/**/*.ts'],
-    rules: {
-      'no-restricted-globals': 'off',
-      'no-restricted-properties': ['error', ...htmlProperties],
-    },
+    rules: { 'no-restricted-globals': 'off' },
   },
   {
     // D-32: the only fetch outside src/upwork, to the user's own Supabase project.
@@ -60,10 +57,6 @@ export default tseslint.config(
   {
     files: ['src/verdict/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...htmlInjection] },
-  },
-  {
-    files: ['src/core/log.ts'],
-    rules: { 'no-console': 'off' },
   },
   {
     files: ['**/*.test.{ts,tsx}', 'test/**/*.{ts,tsx}'],

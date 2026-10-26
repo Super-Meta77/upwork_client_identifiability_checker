@@ -21,7 +21,7 @@ function fileNameWords(base: string): string[] {
 
 export function extractS2File(job: JobData, options: TextScanOptions = DEFAULT_SCAN_OPTIONS): Finding[] {
   const findings: Finding[] = [];
-  for (const { fileName } of job.attachments) {
+  for (const fileName of job.attachmentNames) {
     const location = `attachment ${fileName} > file name`;
     const base = fileName.replace(/\.[a-z0-9]{1,5}$/i, '');
 

@@ -1,41 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { AttachError, CheckerError } from '../core/errors';
+import { CheckerError } from '../core/errors';
 import type { ErrorCode } from '../core/types';
-import { fakeChrome } from '../../test/fakes/chrome';
 import { createGuardedFetch, htmlResponse, jsonResponse, type FetchHandler } from '../../test/fakes/fetch';
 import { errorFixture, jobFixture, jobFixtures } from '../../test/fixtures';
 import { readJobResponse } from './classify';
 import { createUpworkClient, type UpworkDeps } from './client';
-import { MAX_TOKEN_ATTEMPTS, TOKEN_COOKIE_NAME } from './config';
 import { createGate } from './gate';
-import { resolveAllowedUrl } from './hosts';
+import { isAllowedUrl } from './hosts';
 import { JOB_DETAILS_QUERY } from './query';
-import { candidateTokens, chromeTokenSource, type TokenCandidate, type TokenSource } from './token';
+import type { TokenSource } from './token';
 
 const JOB_ID = '~01a2b3c4d5e6f7a8b9';
 
 interface SetupOpts {
-  session?: string | null;
-  manual?: string | null;
-  cookie?: string | null;
-  cookies?: TokenCandidate[];
+  token?: string | null;
   timeoutMs?: number;
 }
 
 function setup(handler: FetchHandler, opts: SetupOpts = {}) {
   const guarded = createGuardedFetch(handler);
-  const state = { session: opts.session ?? null, manual: opts.manual ?? null, requests: 0 };
-  const cookieToken = opts.cookie === undefined ? 'cookie-token' : opts.cookie;
-  const cookieList: TokenCandidate[] = opts.cookies ?? (cookieToken ? [{ token: cookieToken, source: 'cookie UniversalSearchNuxt_vt' }] : []);
+  const state = { token: opts.token === undefined ? 'pasted-token' : opts.token, requests: 0 };
   const tokens: TokenSource = {
-    getSession: async () => state.session,
-    setSession: async (t) => void (state.session = t),
-    clearSession: async () => void (state.session = null),
-    getManual: async () => state.manual,
-    setManual: async (t) => void (state.manual = t),
-    clearManual: async () => void (state.manual = null),
-    getCookie: async () => cookieToken,
-    listCookieTokens: async () => cookieList,
+    get: async () => state.token,
+    set: async (t) => void (state.token = t),
+    clear: async () => void (state.token = null),
   };
   const deps: UpworkDeps = { fetch: guarded.fetch, tokens, gate: createGate(), timeoutMs: opts.timeoutMs ?? 1000, onJobRequest: () => void (state.requests += 1) };
   return { client: createUpworkClient(deps), guarded, state };
@@ -58,26 +46,24 @@ describe('schema and mapping (FR-14)', () => {
     expect(job.title.length).toBeGreaterThan(0);
   });
 
-  it('ignores unknown fields, trims text and coerces numbers', async () => {
+  it('ignores unknown fields and trims text', async () => {
     const job = await readJobResponse(JOB_ID, jsonResponse(jobFixture('synthetic-08-extra-fields')));
     expect(job.title).toBe('Logo for a bakery');
     expect(job.questions).toEqual(['Can you show bakery logos?']);
-    expect(job.attachments).toEqual([]);
-    expect(job.buyer.size).toBe('2');
-    expect(job.buyer.totalCharges).toBeNull();
-    expect(job.buyer.openJobTitles).toEqual(['Logo for a bakery']);
+    expect(job.attachmentNames).toEqual([]);
     expect(job.buyer.workHistory).toEqual([]);
     expect(JSON.stringify(job)).not.toContain('unexpectedTopLevel');
   });
 
   it('maps a minimal response to empty values', async () => {
     const job = await readJobResponse(JOB_ID, jsonResponse(jobFixture('synthetic-04-minimal')));
-    expect(job).toMatchObject({ description: '', questions: [], attachments: [], buyer: { companyName: null, workHistory: [], openJobTitles: [] } });
+    expect(job).toMatchObject({ description: '', questions: [], attachmentNames: [], buyer: { companyName: null, workHistory: [] } });
   });
 
-  it('maps numbers sent as strings', async () => {
-    const job = await readJobResponse(JOB_ID, jsonResponse(jobFixture('synthetic-06-reviews')));
-    expect(job.buyer).toMatchObject({ totalCharges: 3120, totalAssignments: 6, feedbackCount: 5 });
+  it('keeps only attachment file names', async () => {
+    const job = await readJobResponse(JOB_ID, jsonResponse(jobFixture('synthetic-05-attachments')));
+    expect(job.attachmentNames).toContain('Tailspin_Toys_Catalogue_2026.docx');
+    expect(JSON.stringify(job)).not.toContain('/att/');
   });
 });
 
@@ -135,125 +121,51 @@ describe('error codes (spec "Error handling")', () => {
   });
 });
 
-describe('token handling (FR-07–FR-09, FR-11)', () => {
-  it('sends one POST to the GraphQL endpoint with the cookie token and only the listed fields (FR-12)', async () => {
+describe('token handling (FR-07–FR-11, D-30)', () => {
+  it('sends one POST to the GraphQL endpoint with the pasted token and only the listed fields (FR-12)', async () => {
     const { client, guarded, state } = setup(() => jsonResponse(jobFixture('synthetic-01-s1-company')));
     await client.fetchJob(JOB_ID);
     expect(guarded.calls).toHaveLength(1);
     expect(guarded.calls[0]).toMatchObject({ url: 'https://www.upwork.com/api/graphql/v1?alias=gql-query-get-auth-job-details-v2', method: 'POST' });
-    expect(guarded.calls[0]?.headers.authorization).toBe('Bearer cookie-token');
+    expect(guarded.calls[0]?.headers.authorization).toBe('Bearer pasted-token');
     expect(JSON.parse(guarded.calls[0]!.body!)).toEqual({ query: JOB_DETAILS_QUERY, variables: { id: JOB_ID } });
-    expect(state.session).toBe('cookie-token');
     expect(state.requests).toBe(1);
   });
 
-  it('tries the last working token first (FR-09)', async () => {
-    const { client, guarded } = setup(() => jsonResponse(jobFixture('synthetic-01-s1-company')), { session: 'session-token' });
-    await client.fetchJob(JOB_ID);
-    expect(guarded.calls[0]?.headers.authorization).toBe('Bearer session-token');
-  });
-
-  it('drops a stale session token and retries once with the cookie token', async () => {
-    const { client, guarded, state } = setup(
-      (call) => (call.headers.authorization === 'Bearer stale' ? jsonResponse({}, 401) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
-      { session: 'stale' },
-    );
-    await client.fetchJob(JOB_ID);
-    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer stale', 'Bearer cookie-token']);
-    expect(state.session).toBe('cookie-token');
-  });
-
-  it('falls back to the cookie token when a stale token gets the 403 HTML page (Phase 0 finding)', async () => {
-    const { client, guarded, state } = setup(
-      (call) => (call.headers.authorization === 'Bearer stale' ? htmlResponse('<html><title>Upwork</title></html>', 403) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
-      { session: 'stale' },
-    );
-    await client.fetchJob(JOB_ID);
-    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer stale', 'Bearer cookie-token']);
-    expect(state.session).toBe('cookie-token');
-  });
-
-  it('moves on to the next token when one is refused for scope (E-SCOPE) and keeps the one that works (D-29)', async () => {
-    const { client, guarded, state } = setup(
-      (call) => (call.headers.authorization === 'Bearer scoped' ? jsonResponse(errorFixture('permission')) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
-      { cookies: [{ token: 'scoped', source: 'cookie oauth2_global_js_token' }, { token: 'page', source: 'cookie UniversalSearchNuxt_vt' }] },
-    );
-    await client.fetchJob(JOB_ID);
-    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer scoped', 'Bearer page']);
-    expect(state.session).toBe('page');
-  });
-
-  it('tries the manual token, then the session token, then cookies, in that order (D-29, D-30)', async () => {
-    const { client, guarded } = setup(() => jsonResponse(errorFixture('permission')), {
-      manual: 'man',
-      session: 'sess',
-      cookies: [{ token: 'ck', source: 'cookie UniversalSearchNuxt_vt' }],
-    });
-    expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-SCOPE');
-    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer man', 'Bearer sess', 'Bearer ck']);
-  });
-
-  it('clears a refused manual token so Settings prompts for a fresh one (D-30)', async () => {
-    const { client, guarded, state } = setup(
-      (call) => (call.headers.authorization === 'Bearer stale-manual' ? jsonResponse(errorFixture('unauthenticated')) : jsonResponse(jobFixture('synthetic-01-s1-company'))),
-      { manual: 'stale-manual', cookie: 'cookie-token' },
-    );
-    await client.fetchJob(JOB_ID);
-    expect(guarded.calls.map((c) => c.headers.authorization)).toEqual(['Bearer stale-manual', 'Bearer cookie-token']);
-    expect(state.manual).toBeNull();
-  });
-
-  it('tries no further token after Stop (FR-13)', async () => {
-    const stop = new AbortController();
-    const { client, guarded } = setup(
-      () => {
-        stop.abort();
-        return jsonResponse(errorFixture('permission'));
-      },
-      { cookies: [{ token: 'a', source: 'cookie a' }, { token: 'b', source: 'cookie b' }] },
-    );
-    await expect(client.fetchJob(JOB_ID, stop.signal)).rejects.toMatchObject({ name: 'AbortError' });
-    expect(guarded.calls).toHaveLength(1);
-  });
-
-  it('tries at most MAX_TOKEN_ATTEMPTS tokens before giving up (D-29)', async () => {
-    const cookies: TokenCandidate[] = Array.from({ length: MAX_TOKEN_ATTEMPTS + 4 }, (_, i) => ({ token: `t${i}`, source: `cookie c${i}` }));
-    const { client, guarded } = setup(() => jsonResponse(errorFixture('permission')), { cookies });
-    expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-SCOPE');
-    expect(guarded.calls).toHaveLength(MAX_TOKEN_ATTEMPTS);
-  });
-
-  it('does not try other tokens for a real error such as not-found', async () => {
-    const { client, guarded } = setup(() => jsonResponse(errorFixture('not-found')), {
-      cookies: [{ token: 'a', source: 'cookie a' }, { token: 'b', source: 'cookie b' }],
-    });
-    expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-NOTFOUND');
-    expect(guarded.calls).toHaveLength(1);
-  });
-
-  it('fails with E-AUTH without any token and makes no request (FR-11)', async () => {
-    const { client, guarded } = setup(() => jsonResponse({}), { cookie: null });
+  it('fails with E-AUTH without a token and makes no request (FR-11)', async () => {
+    const { client, guarded } = setup(() => jsonResponse({}), { token: null });
     expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-AUTH');
     expect(guarded.calls).toHaveLength(0);
   });
 
-  it('never puts the token in an error message (NFR-08)', async () => {
-    const { client } = setup(() => jsonResponse(errorFixture('unauthenticated')), { cookie: 'SECRET-TOKEN-123' });
-    const error = (await client.fetchJob(JOB_ID).catch((e: unknown) => e)) as Error;
-    expect(`${error.message} ${JSON.stringify(error)}`).not.toContain('SECRET-TOKEN-123');
+  it.each([
+    ['a GraphQL unauthenticated error', () => jsonResponse(errorFixture('unauthenticated'))],
+    ['the 403 HTML page Upwork sends for an invalid token', () => htmlResponse('<html><title>Upwork</title></html>', 403)],
+  ])('clears an expired token on %s, so Settings asks for a fresh one (D-30)', async (_label, handler) => {
+    const { client, guarded, state } = setup(handler);
+    expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-AUTH');
+    expect(guarded.calls).toHaveLength(1);
+    expect(state.token).toBeNull();
   });
 
-  it('reads the named cookie and keeps the token only in session storage', async () => {
-    const chrome = fakeChrome();
-    chrome._cookies.set(TOKEN_COOKIE_NAME, 'abc%3D');
-    const source = chromeTokenSource();
-    expect((await candidateTokens(source)).map((c) => c.token)).toEqual(['abc=']);
-    expect((await candidateTokens(source)).map((c) => c.source)).toEqual(['cookie UniversalSearchNuxt_vt']);
-    await source.setSession('abc=');
-    expect(chrome.storage.session.dump()).toEqual({ upworkToken: 'abc=' });
-    expect(chrome.storage.local.dump()).toEqual({});
-    await source.clearSession();
-    expect(await source.getSession()).toBeNull();
+  it('keeps a token refused only for scope (E-SCOPE): it is a real token', async () => {
+    const { client, state } = setup(() => jsonResponse(errorFixture('permission')));
+    expect(await codeOf(client.fetchJob(JOB_ID))).toBe('E-SCOPE');
+    expect(state.token).toBe('pasted-token');
+  });
+
+  it('sends nothing after Stop (FR-13)', async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const { client, guarded } = setup(() => jsonResponse(jobFixture('synthetic-01-s1-company')));
+    await expect(client.fetchJob(JOB_ID, stop.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(guarded.calls).toHaveLength(0);
+  });
+
+  it('never puts the token in an error message (NFR-08)', async () => {
+    const { client } = setup(() => jsonResponse(errorFixture('unauthenticated')), { token: 'SECRET-TOKEN-123' });
+    const error = (await client.fetchJob(JOB_ID).catch((e: unknown) => e)) as Error;
+    expect(`${error.message} ${JSON.stringify(error)}`).not.toContain('SECRET-TOKEN-123');
   });
 });
 
@@ -264,73 +176,16 @@ describe('request volume and hosts (NFR-01, NFR-07)', () => {
       await new Promise((r) => setTimeout(r, 5));
       return jsonResponse(jobFixture('synthetic-01-s1-company'));
     });
-    const tokens: TokenSource = {
-      getSession: async () => 't',
-      setSession: async () => {},
-      clearSession: async () => {},
-      getManual: async () => null,
-      setManual: async () => {},
-      clearManual: async () => {},
-      getCookie: async () => 't',
-      listCookieTokens: async () => [{ token: 't', source: 'cookie UniversalSearchNuxt_vt' }],
-    };
+    const tokens: TokenSource = { get: async () => 't', set: async () => {}, clear: async () => {} };
     const client = createUpworkClient({ fetch: guarded.fetch, tokens, gate, timeoutMs: 1000 });
-    await Promise.all([client.fetchJob(JOB_ID), client.fetchJob(JOB_ID), client.downloadAttachment({ fileName: 'a.pdf', uri: '/att/1', length: 10 }).catch(() => null)]);
+    await Promise.all([client.fetchJob(JOB_ID), client.fetchJob(JOB_ID), client.fetchJob(JOB_ID)]);
     expect(guarded.maxInFlight()).toBe(1);
     expect(gate.inFlight()).toBe(0);
   });
 
-  it('resolves attachment locations only on allowed hosts', () => {
-    expect(resolveAllowedUrl('/att/download/1')?.href).toBe('https://www.upwork.com/att/download/1');
-    expect(resolveAllowedUrl('https://evil.example/x')).toBeNull();
-    expect(resolveAllowedUrl('http://www.upwork.com/x')).toBeNull();
-    expect(resolveAllowedUrl('http://[bad')).toBeNull();
-  });
-});
-
-describe('attachment downloads (FR-15, D-15)', () => {
-  const pdfBytes = new TextEncoder().encode('%PDF-1.4 tiny');
-  const att = (over: Partial<{ fileName: string; uri: string | null; length: number | null }> = {}) => ({ fileName: 'brief.pdf', uri: '/att/download/1', length: 100, ...over });
-
-  it('downloads an allowed file with the session token', async () => {
-    const { client, guarded } = setup(() => new Response(pdfBytes, { status: 200 }), { session: 'session-token' });
-    expect(await client.downloadAttachment(att())).toEqual(pdfBytes);
-    expect(guarded.calls[0]?.headers.authorization).toBe('Bearer session-token');
-  });
-
-  it.each([
-    ['an unsupported type', att({ fileName: 'notes.txt' }), 'not analysed'],
-    ['a declared size over 10 MB', att({ length: 11 * 1024 * 1024 }), 'larger than 10 MB'],
-    ['no download location', att({ uri: null }), 'no download location'],
-    ['another host', att({ uri: 'https://files.example.net/a.pdf' }), 'may not contact'],
-  ])('rejects %s without a request', async (_label, attachment, message) => {
-    const { client, guarded } = setup(() => new Response(pdfBytes));
-    await expect(client.downloadAttachment(attachment)).rejects.toThrow(message);
-    expect(guarded.calls).toHaveLength(0);
-  });
-
-  it('rejects HTTP errors and failed connections', async () => {
-    await expect(setup(() => new Response('', { status: 404 })).client.downloadAttachment(att())).rejects.toThrow('HTTP 404');
-    await expect(setup(() => Promise.reject(new TypeError('x'))).client.downloadAttachment(att())).rejects.toBeInstanceOf(AttachError);
-  });
-
-  it('stops a download that grows past 10 MB, whatever the reported size', async () => {
-    const chunk = new Uint8Array(1024 * 1024);
-    let sent = 0;
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        sent += 1;
-        if (sent > 12) controller.close();
-        else controller.enqueue(chunk);
-      },
-    });
-    const { client } = setup(() => new Response(stream, { status: 200 }));
-    await expect(client.downloadAttachment(att({ length: 100 }))).rejects.toThrow('larger than 10 MB');
-    expect(sent).toBeLessThanOrEqual(12);
-  });
-
-  it('rejects a Content-Length over 10 MB before reading', async () => {
-    const { client } = setup(() => new Response(pdfBytes, { status: 200, headers: { 'content-length': String(20 * 1024 * 1024) } }));
-    await expect(client.downloadAttachment(att())).rejects.toThrow('larger than 10 MB');
+  it('allows only https://www.upwork.com', () => {
+    expect(isAllowedUrl(new URL('https://www.upwork.com/api/graphql/v1'))).toBe(true);
+    expect(isAllowedUrl(new URL('http://www.upwork.com/x'))).toBe(false);
+    expect(isAllowedUrl(new URL('https://evil.example/x'))).toBe(false);
   });
 });

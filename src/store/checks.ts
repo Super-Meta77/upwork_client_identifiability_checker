@@ -1,27 +1,24 @@
-// D-32: the check history, in the Supabase table `job_checks` (supabase/migrations). One row per
-// checked job, holding only what the panel shows or uses. Failed checks are not stored, and what
-// can be derived (the job link, finding IDs, "why" texts, matches with a known name) is rebuilt on
-// load. A result that cannot be uploaded waits in a local outbox and goes with the next save.
+// D-32, D-33: the check history, in the Supabase table `job_checks` (supabase/migrations). One row per
+// checked job: the job, the verdict and the findings. Failed checks are not stored, and what can be
+// derived (the job link, finding IDs, "why" texts) is rebuilt on load. A result that cannot be
+// uploaded waits in a local outbox and goes with the next save.
 
 import { CheckerError } from '../core/errors';
-import type { Confidence, Evidence, EvidenceKind, GroundTruth, Result, S3Detail, SourceId, Verdict } from '../core/types';
-import { withMatches } from '../eval/match';
+import type { Confidence, Evidence, EvidenceKind, Result, SourceId, Verdict } from '../core/types';
 import { jobUrl } from '../links/parse';
 import { REASON_BY_SOURCE } from '../verdict/rules';
-import { deleteLegacyResults, readLegacyResults } from './legacy';
-import type { PeerCounts } from './peers';
 import { database, type Database, type KeyValueStore } from './supabase';
 
 export type StoredVerdict = Exclude<Verdict, 'error'>;
 
 export interface StoredEvidence {
-  source: Exclude<SourceId, 'S3'>;
+  source: SourceId;
   kind: EvidenceKind;
   value: string;
   confidence: Confidence;
   /** Only when agreement with another source raised the confidence (D-03). */
   raised_from?: Confidence;
-  /** Field path, or "attachment <file> > <part> > <field>". */
+  /** Field path, or "attachment <file> > file name". */
   location: string;
   /** Left out when it equals the value. */
   snippet?: string;
@@ -29,26 +26,11 @@ export interface StoredEvidence {
   mentions?: number;
 }
 
-export interface KnownClient {
-  known_person: string | null;
-  known_company: string | null;
-  known_website: string | null;
-}
-
-export interface CheckRow extends Partial<KnownClient> {
+export interface CheckRow {
   job_id: string;
   checked_at: string;
   job_title: string;
   verdict: StoredVerdict;
-  best_value: string | null;
-  s3_score: number;
-  s3_details: S3Detail[];
-  client_company_id: string | null;
-  client_country: string | null;
-  client_city: string | null;
-  client_industry: string | null;
-  client_size: string | null;
-  client_since: number | null;
   /** Best finding first. */
   evidence: StoredEvidence[];
 }
@@ -60,35 +42,20 @@ export interface CheckSummary {
   verdict: StoredVerdict;
   checkedAt: string;
   bestValue: string | null;
-  s3Score: number;
 }
 
-export function knownClient(gt: GroundTruth | null | undefined): KnownClient {
-  return { known_person: gt?.personName ?? null, known_company: gt?.companyName ?? null, known_website: gt?.website ?? null };
-}
-
-/** Result -> row; null for a failed check. The known name is included only when asked for. */
-export function toRow(result: Result, withKnownClient = false): CheckRow | null {
-  if (result.verdict === 'error' || !result.distinctiveness) return null;
+/** Result -> row; null for a failed check. */
+export function toRow(result: Result): CheckRow | null {
+  if (result.verdict === 'error') return null;
   const best = result.evidence.find((e) => e.id === result.bestEvidenceId);
   const ordered = best ? [best, ...result.evidence.filter((e) => e !== best)] : result.evidence;
-  const p = result.profile;
   return {
     job_id: result.jobId,
     checked_at: result.checkedAt,
     job_title: result.jobTitle ?? '',
     verdict: result.verdict,
-    best_value: best?.value ?? null,
-    s3_score: result.distinctiveness.score,
-    s3_details: result.distinctiveness.details,
-    client_company_id: p?.companyId ?? null,
-    client_country: p?.country ?? null,
-    client_city: p?.city ?? null,
-    client_industry: p?.industry ?? null,
-    client_size: p?.size ?? null,
-    client_since: p?.memberSinceYear ?? null,
     evidence: ordered.map((e) => ({
-      source: e.source as StoredEvidence['source'],
+      source: e.source,
       kind: e.kind,
       value: e.value,
       confidence: e.confidence,
@@ -97,7 +64,6 @@ export function toRow(result: Result, withKnownClient = false): CheckRow | null 
       ...(e.snippet && e.snippet !== e.value ? { snippet: e.snippet } : {}),
       ...(e.mentions > 1 ? { mentions: e.mentions } : {}),
     })),
-    ...(withKnownClient ? knownClient(result.groundTruth) : {}),
   };
 }
 
@@ -116,37 +82,21 @@ export function fromRow(row: CheckRow): Result {
     mentions: e.mentions ?? 1,
     agreesWith: [],
   }));
-  const result: Result = {
+  return {
     jobId: row.job_id,
     url: jobUrl(row.job_id),
     checkedAt: row.checked_at,
     jobTitle: row.job_title,
     verdict: row.verdict,
     bestEvidenceId: evidence[0]?.id ?? null,
-    distinctiveness: { score: row.s3_score, attributes: row.s3_details.map((d) => d.attribute), details: row.s3_details },
     evidence,
     error: null,
-    groundTruth: null,
-    attachmentNotes: [],
-    profile: {
-      companyId: row.client_company_id,
-      country: row.client_country,
-      city: row.client_city,
-      industry: row.client_industry,
-      size: row.client_size,
-      memberSinceYear: row.client_since,
-    },
   };
-  const known = { personName: row.known_person ?? undefined, companyName: row.known_company ?? undefined, website: row.known_website ?? undefined };
-  if (known.personName || known.companyName || known.website) result.groundTruth = withMatches(result, known);
-  return result;
 }
 
 const VERDICT_WORDS: Record<StoredVerdict, string> = {
-  identified: 'identified before contact',
-  partial: 'partially identified',
-  narrowable: 'narrowable',
-  not_identifiable: 'not identifiable before contact',
+  has_potential: 'has potential',
+  no_potential: 'no potential',
 };
 
 /** PostgREST filter value in double quotes, so commas and brackets in it are kept. */
@@ -164,7 +114,8 @@ export function searchFilter(query: string): string | null {
 }
 
 const TABLE = 'job_checks';
-const SUMMARY = 'job_id,job_title,verdict,checked_at,best_value,s3_score';
+/** The best finding is the first one, so the list reads its value from the JSON. */
+const SUMMARY = 'job_id,job_title,verdict,checked_at,best_value:evidence->0->>value';
 /** Supabase returns at most 1000 rows per request. */
 const PAGE = 1000;
 const OUTBOX_KEY = 'checksOutbox';
@@ -175,14 +126,7 @@ const params = (p: Record<string, string>) =>
     .join('&');
 const inList = (values: readonly string[]) => `in.(${values.map(quote).join(',')})`;
 
-type SummaryRow = Pick<CheckRow, 'job_id' | 'job_title' | 'verdict' | 'checked_at' | 'best_value' | 's3_score'>;
-interface PeerRow {
-  country: number | null;
-  city: number | null;
-  industry: number | null;
-  size: number | null;
-  member_since: number | null;
-}
+type SummaryRow = Pick<CheckRow, 'job_id' | 'job_title' | 'verdict' | 'checked_at'> & { best_value: string | null };
 
 export interface ChecksStore {
   /** Saves a check; failed checks are skipped and an upload that fails waits in the outbox. */
@@ -194,19 +138,12 @@ export interface ChecksStore {
   checkedIds(jobIds: readonly string[]): Promise<Set<string>>;
   remove(jobId: string): Promise<void>;
   removeAll(): Promise<void>;
-  setKnownClient(jobId: string, gt: GroundTruth | null): Promise<Result | null>;
-  /** Checks with a known client name, for the accuracy report (FR-36). */
-  withKnownClient(): Promise<Result[]>;
   /** Full checks for an export: the given jobs, or every check. */
   fetch(jobIds: readonly string[] | 'all'): Promise<Result[]>;
-  /** FR-22: how many other clients share each detail, counted in the database. */
-  peers(jobId: string): Promise<PeerCounts>;
   /** Checks waiting in the outbox. */
   pending(): Promise<number>;
   /** Uploads the outbox; returns how many were sent. */
   flush(): Promise<number>;
-  /** Uploads the history of earlier versions once, then deletes it; returns how many moved. */
-  moveLegacyHistory(factory?: IDBFactory): Promise<number>;
 }
 
 export function createChecksStore(db: Database, local: KeyValueStore): ChecksStore {
@@ -276,7 +213,7 @@ export function createChecksStore(db: Database, local: KeyValueStore): ChecksSto
         `${TABLE}?${params({ select: SUMMARY, ...(filter ? { or: filter } : {}), order: 'checked_at.desc', offset: String(offset), limit: String(limit + 1) })}`,
       );
       return {
-        rows: rows.slice(0, limit).map((r) => ({ jobId: r.job_id, jobTitle: r.job_title, verdict: r.verdict, checkedAt: r.checked_at, bestValue: r.best_value, s3Score: r.s3_score })),
+        rows: rows.slice(0, limit).map((r) => ({ jobId: r.job_id, jobTitle: r.job_title, verdict: r.verdict, checkedAt: r.checked_at, bestValue: r.best_value })),
         more: rows.length > limit,
       };
     },
@@ -305,15 +242,6 @@ export function createChecksStore(db: Database, local: KeyValueStore): ChecksSto
       await db.rest(`${TABLE}?job_id=not.is.null`, { method: 'DELETE' });
     },
 
-    async setKnownClient(jobId, gt) {
-      const [row] = await db.rest<CheckRow[]>(`${TABLE}?${params({ job_id: `eq.${jobId}` })}`, { method: 'PATCH', body: knownClient(gt), prefer: 'return=representation' });
-      return row ? fromRow(row) : null;
-    },
-
-    async withKnownClient() {
-      return (await pages({ or: '(known_person.not.is.null,known_company.not.is.null,known_website.not.is.null)' })).map(fromRow);
-    },
-
     async fetch(jobIds) {
       if (jobIds === 'all') return (await pages({})).map(fromRow);
       const out: CheckRow[] = [];
@@ -321,25 +249,11 @@ export function createChecksStore(db: Database, local: KeyValueStore): ChecksSto
       return out.map(fromRow);
     },
 
-    async peers(jobId) {
-      const [row] = await db.rest<PeerRow[]>('rpc/peer_counts', { method: 'POST', body: { p_job_id: jobId } });
-      return { country: row?.country ?? null, city: row?.city ?? null, industry: row?.industry ?? null, size: row?.size ?? null, memberSinceYear: row?.member_since ?? null };
-    },
-
     async pending() {
       return (await outbox()).length;
     },
 
     flush,
-
-    async moveLegacyHistory(factory) {
-      const results = await readLegacyResults(factory);
-      if (results === null) return 0;
-      const rows = results.map((r) => toRow(r, true)).filter((r): r is CheckRow => r !== null);
-      for (let i = 0; i < rows.length; i += 500) await upsert(rows.slice(i, i + 500));
-      await deleteLegacyResults(factory);
-      return rows.length;
-    },
   };
 }
 

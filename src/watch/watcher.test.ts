@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { emptyState, type BatchRow, type RunnerState } from '../runner/runner';
-import type { SavedQueue } from '../store/local-state';
+import { emptyState, type BatchRow, type QueueItem, type RunnerState } from '../runner/runner';
 import type { PageScan } from './page-scan';
 import { MAX_SEARCH_LENGTH, searchUrl } from './search-page';
 import { WatchError, type TabDriver } from './tabs';
@@ -20,7 +19,7 @@ interface Options {
   typing?: boolean;
   startUrl?: string;
   /** Overrides the state a round's batch ends with. */
-  outcome?: (queue: SavedQueue) => Partial<RunnerState>;
+  outcome?: (items: readonly QueueItem[]) => Partial<RunnerState>;
   /** Called on each wait between auto-refresh rounds. */
   onSleep?: (count: number, watcher: SearchWatcher) => void;
 }
@@ -64,17 +63,16 @@ function setup(pages: (PageScan | Error)[], { deps = {}, run = {}, typing = true
       onSleep?.(sleeps.length, watcher);
     },
     now: () => 0,
-    newId: () => 'q',
     onChange: (s) => states.push(s),
     ...deps,
   });
 
   const config: WatchRun = {
     createRunner: (onChange) => ({
-      run: async (queue) => {
-        batches.push(queue.items.map((i) => i.jobId));
-        const rows: BatchRow[] = queue.items.map((i) => ({ key: i.jobId, input: i.url, jobId: i.jobId, url: i.url, status: 'done', result: null, error: null }));
-        const state: RunnerState = { ...emptyState(), phase: 'done', rows, total: rows.length, completed: rows.length, ...outcome?.(queue) };
+      run: async (items) => {
+        batches.push(items.map((i) => i.jobId));
+        const rows: BatchRow[] = items.map((i) => ({ jobId: i.jobId, url: i.url, status: 'done', result: null, error: null }));
+        const state: RunnerState = { ...emptyState(), phase: 'done', rows, total: rows.length, completed: rows.length, ...outcome?.(items) };
         onChange(state);
         return state;
       },
@@ -216,7 +214,7 @@ describe('watching stops by itself (D-31)', () => {
       deps: { dayCount: async () => used },
       run: { dailyLimit: 3 },
       outcome: (q) => {
-        used += q.items.length;
+        used += q.length;
         return {};
       },
     });

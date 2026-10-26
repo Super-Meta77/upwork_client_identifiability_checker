@@ -1,4 +1,4 @@
-// Value matching for the agreement rule (spec "Verdict rules", D-03) and the accuracy report.
+// Value matching for the agreement rule (spec "Verdict rules", D-03).
 
 import type { EvidenceKind } from '../core/types';
 import { FREE_MAIL_DOMAINS } from '../extract/lists/free-mail';
